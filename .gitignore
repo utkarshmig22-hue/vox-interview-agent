@@ -1,0 +1,44 @@
+# --- Python ---
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# --- Secrets / local config ---
+.env
+.env.local
+.env.*.local
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- Local dev tooling (machine-specific paths) ---
+.claude/
+
+# --- Build / dist ---
+build/
+dist/
+*.log
+
+# --- Whisper model cache (large; downloaded on first run) ---
+.cache/
+~/.cache/huggingface/
+
+# --- Temp / scratch ---
+/tmp/
+*.tmp
+*.bak
+
+# --- Project-specific ---
+vox-server.log
+*.pem
+*.key

@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vox · AI Voice Interviewer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Instrument+Serif&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <!-- Animated gradient mesh backdrop -->
+  <div class="backdrop" aria-hidden="true">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+    <div class="grain"></div>
+  </div>
+
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="28" height="28">
+          <defs>
+            <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#a78bfa"/>
+              <stop offset="50%" stop-color="#7c83ff"/>
+              <stop offset="100%" stop-color="#22d3ee"/>
+            </linearGradient>
+          </defs>
+          <rect x="2" y="2" width="28" height="28" rx="9" fill="url(#bg)"/>
+          <g fill="#0b0d18">
+            <rect x="10" y="9" width="2.5" height="14" rx="1.25"/>
+            <rect x="14.75" y="6" width="2.5" height="20" rx="1.25"/>
+            <rect x="19.5" y="11" width="2.5" height="10" rx="1.25"/>
+          </g>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <div class="brand-name">Vox</div>
+        <div class="brand-tag">AI Voice Interviewer</div>
+      </div>
+    </div>
+    <nav class="app-nav">
+      <button type="button" id="nav-history-btn" class="btn-ghost btn-sm">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><polyline points="3 3 3 8 8 8"/><polyline points="12 7 12 12 16 14"/></svg>
+        <span>History</span>
+      </button>
+    </nav>
+  </header>
+
+  <main id="app">
+    <!-- ============ SETUP SCREEN ============ -->
+    <section id="setup-screen" class="screen active">
+      <div class="hero">
+        <h1 class="hero-title">
+          Practice <em>spoken</em> interviews<br/>on <span class="grad-text">anything.</span>
+        </h1>
+        <p class="hero-sub">
+          Pick a topic, set the bar, and have a real back-and-forth with an AI interviewer.
+          Get scored on five dimensions when you're done.
+        </p>
+      </div>
+
+      <div class="glass card setup-card">
+        <form id="setup-form">
+          <!-- ============ Mode tabs (Job vs Study) ============ -->
+          <div class="mode-tabs" role="tablist" aria-label="Mode">
+            <button type="button" class="mode-tab active" data-mode="job" role="tab" aria-selected="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-4V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM10 5h4v2h-4z"/></svg>
+              <span>Job interview</span>
+              <span class="mode-tab-sub">Practice for a real interview</span>
+            </button>
+            <button type="button" class="mode-tab" data-mode="study" role="tab" aria-selected="false">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+              <span>Study mode</span>
+              <span class="mode-tab-sub">Quiz yourself on uploaded material</span>
+            </button>
+          </div>
+          <input type="hidden" id="mode" value="job" />
+
+          <!-- ============ Study material panel (visible in study mode only) ============ -->
+          <div id="study-panel" class="study-panel hidden">
+            <div class="study-panel-header">
+              <span class="study-panel-title">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                Study material
+              </span>
+              <span class="study-panel-sub">PDF, DOCX, or plain text · max 5 MB</span>
+            </div>
+            <div class="study-upload-row">
+              <label for="material-file" class="resume-upload-btn">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span>Upload material</span>
+              </label>
+              <input type="file" id="material-file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" hidden />
+              <span id="material-status" class="resume-status"></span>
+            </div>
+            <textarea id="study-material" rows="4" maxlength="80000"
+                      placeholder="Or paste notes / a chapter excerpt directly here. The coach will only ask questions grounded in this content."></textarea>
+          </div>
+
+          <!-- ============ Templates bar ============ -->
+          <div class="templates-bar">
+            <span class="templates-label">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+              Templates
+            </span>
+            <select id="template-picker" class="templates-select">
+              <option value="">— Load a saved template —</option>
+            </select>
+            <button type="button" id="save-template-btn" class="btn-ghost btn-sm" title="Save current form as a template">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              <span>Save</span>
+            </button>
+            <button type="button" id="delete-template-btn" class="btn-ghost btn-sm" title="Delete selected template" disabled>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            </button>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span class="field-label">Your name <span class="optional">(optional)</span></span>
+              <input type="text" id="candidate-name" placeholder="e.g. Alex" autocomplete="off" />
+            </label>
+
+            <label class="field field-wide">
+              <span class="field-label">Topic</span>
+              <input type="text" id="topic" required
+                     placeholder="e.g. Python backend, Distributed systems, Behavioural — leadership" autocomplete="off" />
+              <div class="chip-row">
+                <button type="button" class="chip" data-topic="Python backend engineering">Python backend</button>
+                <button type="button" class="chip" data-topic="System design — scalable web services">System design</button>
+                <button type="button" class="chip" data-topic="Machine learning fundamentals">Machine learning</button>
+                <button type="button" class="chip" data-topic="Behavioural — leadership and conflict">Behavioural</button>
+                <button type="button" class="chip" data-topic="Product sense — feature prioritisation">Product</button>
+                <button type="button" class="chip" data-topic="Data structures and algorithms">DSA</button>
+              </div>
+            </label>
+
+            <label class="field">
+              <span class="field-label">Difficulty</span>
+              <div class="seg" id="difficulty-seg" role="radiogroup" aria-label="Difficulty">
+                <button type="button" class="seg-opt" data-value="beginner" role="radio">Beginner</button>
+                <button type="button" class="seg-opt active" data-value="intermediate" role="radio" aria-checked="true">Intermediate</button>
+                <button type="button" class="seg-opt" data-value="advanced" role="radio">Advanced</button>
+                <button type="button" class="seg-opt" data-value="expert" role="radio">Expert</button>
+              </div>
+              <input type="hidden" id="difficulty" value="intermediate" />
+            </label>
+
+            <label class="field">
+              <span class="field-label">Primary questions</span>
+              <div class="stepper">
+                <button type="button" class="step-btn" data-step="-1" aria-label="Decrease">−</button>
+                <input type="number" id="target-questions" min="3" max="15" value="6" />
+                <button type="button" class="step-btn" data-step="1" aria-label="Increase">+</button>
+              </div>
+            </label>
+          </div>
+
+          <!-- ============ Interview context (expandable) ============ -->
+          <details class="context-panel" id="context-panel">
+            <summary>
+              <span class="context-summary-label">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                Add interview context
+                <span class="context-summary-sub">role, focus areas, your background, scenarios</span>
+              </span>
+              <span class="context-chevron" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </span>
+            </summary>
+
+            <div class="context-body">
+              <label class="field">
+                <span class="field-label">Target role / company / level</span>
+                <input type="text" id="role-context" maxlength="1000"
+                       placeholder="e.g. Senior PM at a B2B fintech, Series B, 80-person team" autocomplete="off" />
+              </label>
+
+              <label class="field">
+                <span class="field-label">Focus areas to test</span>
+                <textarea id="focus-areas" rows="2" maxlength="1000"
+                          placeholder="e.g. prioritisation under ambiguity, metric design, cross-functional influence, technical fluency"></textarea>
+                <div class="chip-row" id="focus-chips">
+                  <button type="button" class="chip" data-add-focus="prioritisation under ambiguity">prioritisation</button>
+                  <button type="button" class="chip" data-add-focus="metric design and analytics">metrics</button>
+                  <button type="button" class="chip" data-add-focus="stakeholder management">stakeholders</button>
+                  <button type="button" class="chip" data-add-focus="execution and delivery">execution</button>
+                  <button type="button" class="chip" data-add-focus="product strategy and vision">strategy</button>
+                  <button type="button" class="chip" data-add-focus="technical depth">tech depth</button>
+                  <button type="button" class="chip" data-add-focus="user research and discovery">user research</button>
+                </div>
+              </label>
+
+              <label class="field">
+                <span class="field-label">Your background <span class="optional">(paste resume highlights, or upload a file to auto-fill)</span></span>
+                <div class="resume-upload">
+                  <label for="resume-file" class="resume-upload-btn">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <span>Upload resume</span>
+                    <span class="resume-upload-formats">PDF · DOCX · TXT</span>
+                  </label>
+                  <input type="file" id="resume-file" accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" hidden />
+                  <span id="resume-status" class="resume-status"></span>
+                </div>
+                <textarea id="candidate-background" rows="4" maxlength="3000"
+                          placeholder="e.g. 4 yrs as Associate PM at a logistics SaaS, owned the driver-onboarding flow that lifted activation 28%. Engineering background (CS undergrad, 2 yrs as a backend dev). Worked on…"></textarea>
+              </label>
+
+              <label class="field">
+                <span class="field-label">Specific scenarios or themes to cover</span>
+                <textarea id="scenarios-to-cover" rows="3" maxlength="2000"
+                          placeholder="e.g. Walk through how I'd launch a payments product in a new market. Also test me on handling a missed quarterly goal."></textarea>
+              </label>
+
+              <label class="field">
+                <span class="field-label">Interview style</span>
+                <div class="seg seg-wrap" id="style-seg" role="radiogroup" aria-label="Interview style">
+                  <button type="button" class="seg-opt active" data-value="mixed" role="radio" aria-checked="true">Mixed</button>
+                  <button type="button" class="seg-opt" data-value="conversational" role="radio">Conversational</button>
+                  <button type="button" class="seg-opt" data-value="structured-behavioral" role="radio">Behavioural</button>
+                  <button type="button" class="seg-opt" data-value="case-study" role="radio">Case study</button>
+                  <button type="button" class="seg-opt" data-value="technical-deep-dive" role="radio">Tech deep-dive</button>
+                </div>
+                <input type="hidden" id="interview-style" value="mixed" />
+              </label>
+
+              <label class="field">
+                <span class="field-label">Interviewer persona</span>
+                <div class="seg seg-wrap" id="persona-seg" role="radiogroup" aria-label="Persona">
+                  <button type="button" class="seg-opt" data-value="friendly-mentor" role="radio">Friendly Mentor</button>
+                  <button type="button" class="seg-opt active" data-value="hiring-manager" role="radio" aria-checked="true">Hiring Manager</button>
+                  <button type="button" class="seg-opt" data-value="skeptical-senior" role="radio">Skeptical Senior</button>
+                  <button type="button" class="seg-opt" data-value="panel" role="radio">Panel (2 voices)</button>
+                </div>
+                <input type="hidden" id="persona" value="hiring-manager" />
+              </label>
+
+              <div class="field-row">
+                <label class="field">
+                  <span class="field-label">Time budget</span>
+                  <div class="stepper">
+                    <button type="button" class="step-btn" data-target="target-minutes" data-step="-5" aria-label="Decrease">−</button>
+                    <input type="number" id="target-minutes" min="5" max="60" value="15" />
+                    <button type="button" class="step-btn" data-target="target-minutes" data-step="5" aria-label="Increase">+</button>
+                  </div>
+                  <span class="field-helper">min · interviewer wraps up as time runs out</span>
+                </label>
+                <label class="field">
+                  <span class="field-label">Open with small talk</span>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="small-talk" />
+                    <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    <span class="toggle-text">Brief warm-up before first question</span>
+                  </label>
+                </label>
+              </div>
+            </div>
+          </details>
+
+          <div class="hint" id="browser-hint"></div>
+
+          <button type="submit" class="btn-primary btn-lg" id="start-btn">
+            <span>Start interview</span>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+          </button>
+        </form>
+      </div>
+
+      <div class="feature-row">
+        <div class="feature">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+          </div>
+          <div>
+            <div class="feature-title">Voice native</div>
+            <div class="feature-sub">Hold-to-talk, hear the interviewer back</div>
+          </div>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div>
+            <div class="feature-title">Adaptive</div>
+            <div class="feature-sub">Follows up on thin or interesting answers</div>
+          </div>
+        </div>
+        <div class="feature">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </div>
+          <div>
+            <div class="feature-title">Scored verdict</div>
+            <div class="feature-sub">5 criteria + strengths & gaps</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ INTERVIEW SCREEN ============ -->
+    <section id="interview-screen" class="screen">
+      <div class="interview-header">
+        <div class="status-bar">
+          <span id="status-pill" class="pill pill-idle">
+            <span class="pill-dot"></span>
+            <span id="status-text">Idle</span>
+          </span>
+          <span id="topic-pill" class="pill pill-subtle"></span>
+          <span id="question-pill" class="pill pill-subtle"></span>
+          <span id="clock-pill" class="pill pill-clock" title="Elapsed time">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span id="clock-text">0:00</span>
+          </span>
+          <span id="speaker-pill" class="pill pill-speaker hidden">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span id="speaker-text"></span>
+          </span>
+          <button type="button" id="settings-btn" class="settings-btn" title="Voice & flow settings" aria-label="Settings">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+        </div>
+
+        <!-- Settings popover -->
+        <div id="settings-panel" class="settings-panel hidden" role="dialog" aria-label="Settings">
+          <div class="settings-row">
+            <label class="settings-label" for="voice-picker">Interviewer voice</label>
+            <select id="voice-picker" class="settings-select"></select>
+            <div class="settings-hint" id="voice-tip"></div>
+          </div>
+          <div class="settings-row">
+            <label class="settings-label" for="rate-slider">Speech speed <span id="rate-value" class="settings-value">0.95×</span></label>
+            <input type="range" id="rate-slider" class="settings-slider" min="0.7" max="1.3" step="0.05" value="0.95" />
+          </div>
+          <div class="settings-row">
+            <label class="settings-toggle">
+              <input type="checkbox" id="auto-listen-toggle" checked />
+              <span class="settings-toggle-label">Auto-listen when interviewer finishes</span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label class="settings-toggle">
+              <input type="checkbox" id="auto-send-toggle" />
+              <span class="settings-toggle-label">Auto-send after <input type="number" id="silence-secs" min="0.3" max="3" step="0.1" value="0.8" class="settings-num" />s of silence <span class="settings-hint" style="margin-left:6px;">(off by default — you review before sending)</span></span>
+            </label>
+          </div>
+          <div class="settings-row">
+            <label class="settings-toggle">
+              <input type="checkbox" id="acks-toggle" checked />
+              <span class="settings-toggle-label">Play quick acknowledgements ("Got it.", "Mhm.") while interviewer is thinking</span>
+            </label>
+          </div>
+          <div class="settings-row settings-footer">
+            <button type="button" id="test-voice-btn" class="btn-ghost btn-sm">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+              <span>Test voice</span>
+            </button>
+            <button type="button" id="close-settings-btn" class="btn-ghost btn-sm">Done</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Avatar (SVG face with lip-sync) -->
+      <div class="orb-stage">
+        <div id="orb" class="orb orb-idle" data-persona="hiring-manager">
+          <div class="orb-ring orb-ring-1"></div>
+          <div class="orb-ring orb-ring-2"></div>
+          <div class="orb-ring orb-ring-3"></div>
+
+          <svg id="avatar" class="avatar" viewBox="0 0 200 200" aria-hidden="true">
+            <defs>
+              <radialGradient id="faceGrad" cx="40%" cy="35%" r="75%">
+                <stop offset="0%" stop-color="#e9e3ff"/>
+                <stop offset="55%" stop-color="#a78bfa"/>
+                <stop offset="100%" stop-color="#6063e8"/>
+              </radialGradient>
+              <radialGradient id="cheekGrad" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="rgba(255,160,180,0.55)"/>
+                <stop offset="100%" stop-color="rgba(255,160,180,0)"/>
+              </radialGradient>
+              <filter id="faceGlow">
+                <feGaussianBlur stdDeviation="3" result="blur"/>
+                <feMerge>
+                  <feMergeNode in="blur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+            </defs>
+
+            <!-- Face base -->
+            <circle class="face-base" cx="100" cy="100" r="78" fill="url(#faceGrad)" filter="url(#faceGlow)"/>
+
+            <!-- Cheeks -->
+            <ellipse class="cheek" cx="52" cy="118" rx="18" ry="13" fill="url(#cheekGrad)"/>
+            <ellipse class="cheek" cx="148" cy="118" rx="18" ry="13" fill="url(#cheekGrad)"/>
+
+            <!-- Eyebrows -->
+            <path id="eyebrow-left" class="eyebrow" d="M 60 76 Q 72 70 84 76"
+                  stroke="#0e1019" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+            <path id="eyebrow-right" class="eyebrow" d="M 116 76 Q 128 70 140 76"
+                  stroke="#0e1019" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+
+            <!-- Eyes (group so we can blink both with one transform) -->
+            <g id="eyes" class="eyes">
+              <ellipse class="eye" cx="72" cy="96" rx="8.5" ry="10.5" fill="#0e1019"/>
+              <ellipse class="eye" cx="128" cy="96" rx="8.5" ry="10.5" fill="#0e1019"/>
+              <circle class="eye-glint" cx="75" cy="93" r="2.4" fill="#ffffff"/>
+              <circle class="eye-glint" cx="131" cy="93" r="2.4" fill="#ffffff"/>
+            </g>
+
+            <!-- Mouth: rx and ry are driven by JS during TTS playback -->
+            <ellipse id="mouth" class="mouth" cx="100" cy="142" rx="13" ry="2" fill="#0e1019"/>
+
+            <!-- Resting smile overlay (visible only when mouth is near-closed) -->
+            <path id="smile" class="smile" d="M 84 142 Q 100 152 116 142"
+                  stroke="#0e1019" stroke-width="3" fill="none" stroke-linecap="round" opacity="0"/>
+          </svg>
+
+          <!-- Speaker chip overlay (panel mode) -->
+          <div id="avatar-speaker-chip" class="avatar-speaker-chip hidden"></div>
+        </div>
+      </div>
+
+      <div class="interview-grid">
+        <div class="glass card transcript-card">
+          <div class="transcript-header">
+            <span class="transcript-title">Conversation</span>
+            <span class="transcript-meta" id="transcript-meta">live</span>
+          </div>
+          <div id="transcript" class="transcript" aria-live="polite"></div>
+        </div>
+
+        <div class="glass card notes-card">
+          <div class="notes-header">
+            <span class="notes-title">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              Interviewer notes
+            </span>
+            <span class="notes-sub" id="notes-sub">Private — what they're tracking</span>
+          </div>
+          <div id="notes-list" class="notes-list">
+            <div class="notes-empty">Notes will appear here as the interview progresses…</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="code-card" class="glass card code-card hidden">
+        <div class="code-header">
+          <span class="code-title">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            Code shared by interviewer
+          </span>
+          <button type="button" id="copy-code-btn" class="btn-ghost btn-sm">Copy</button>
+        </div>
+        <pre id="code-block"><code></code></pre>
+      </div>
+
+      <!-- Always-visible answer editor: live transcript while speaking, edit before sending -->
+      <div class="glass card answer-card">
+        <div class="answer-header">
+          <span class="answer-title">Your answer</span>
+          <span class="answer-hint" id="answer-hint">Hold the mic and speak — your words appear here. Review and click Send.</span>
+        </div>
+        <textarea id="text-answer" rows="4"
+                  placeholder="Hold the mic to speak, or type your answer here…"></textarea>
+        <div class="answer-actions">
+          <button id="mic-btn" class="mic-btn" disabled>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+            <span id="mic-label">Hold to talk</span>
+          </button>
+          <button id="clear-answer-btn" class="btn-ghost" title="Clear answer">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            <span>Clear</span>
+          </button>
+          <button id="send-text-btn" class="btn-primary" disabled>
+            <span>Send answer</span>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+          <button id="finish-btn" class="btn-danger">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+            <span>Finish</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ HISTORY SCREEN ============ -->
+    <section id="history-screen" class="screen">
+      <div class="hero hero-compact">
+        <h1 class="hero-title">Practice <em>history</em></h1>
+        <p class="hero-sub">Every interview you've finished. Click any to review the report.</p>
+      </div>
+      <div class="glass card history-card">
+        <div id="history-list" class="history-list">
+          <div class="history-empty">No completed interviews yet — finish one and it'll show up here.</div>
+        </div>
+        <div class="history-actions">
+          <button type="button" id="history-back-btn" class="btn-ghost">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            <span>Back to setup</span>
+          </button>
+          <button type="button" id="history-clear-btn" class="btn-danger btn-sm">Clear all</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ REPORT SCREEN ============ -->
+    <section id="report-screen" class="screen">
+      <div class="glass card report-card">
+        <div class="report-top">
+          <div class="report-eyebrow">Evaluation report</div>
+          <h2 class="report-title">How you did</h2>
+        </div>
+        <div id="report-content"></div>
+        <div class="report-actions">
+          <button id="new-interview-btn" class="btn-primary btn-lg">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            <span>New interview</span>
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <span>Built with FastAPI + Claude · Web Speech API</span>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

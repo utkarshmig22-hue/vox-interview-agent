@@ -1,0 +1,254 @@
+import os
+from pathlib import Path
+from typing import Optional
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+load_dotenv()
+
+# IMPORTANT: the Claude Agent SDK falls back to ANTHROPIC_API_KEY when set,
+# which would bypass the Max-plan OAuth and bill the API account instead.
+# Strip any placeholder / leftover key BEFORE importing the SDK-using modules.
+_key = os.environ.get("ANTHROPIC_API_KEY", "")
+if not _key or _key.startswith("sk-ant-xxxxxxxx"):
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+
+from . import evaluator, interviewer, resume, stt, tts  # noqa: E402
+from .models import (  # noqa: E402
+    FinishResponse,
+    RespondRequest,
+    RespondResponse,
+    StartInterviewRequest,
+    StartInterviewResponse,
+)
+from .session import store  # noqa: E402
+
+app = FastAPI(title="Vox · AI Voice Interviewer", version="1.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.on_event("startup")
+def _check_env() -> None:
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        print("[info] ANTHROPIC_API_KEY detected — Agent SDK will use it instead of Claude Max OAuth.")
+    else:
+        print("[info] No ANTHROPIC_API_KEY set — using Claude Code OAuth (Max plan).")
+    model = os.environ.get("CLAUDE_MODEL")
+    if model:
+        print(f"[info] Model override: {model}")
+    # Pre-warm Whisper in the background so the first transcribe is fast.
+    if stt.is_available():
+        print(f"[info] Whisper STT available (model={stt.info()['model']}). Warming in background…")
+        stt.warm()
+
+
+@app.get("/api/health")
+def health() -> dict:
+    return {
+        "ok": True,
+        "auth": "api_key" if os.environ.get("ANTHROPIC_API_KEY") else "claude_code_oauth",
+        "interviewer_model": interviewer._model(),
+        "evaluator_model": evaluator._model(),
+        "tts_backend": "macos_say" if tts.is_available() else None,
+        "stt_backend": "whisper" if stt.is_available() else None,
+        "stt": stt.info(),
+    }
+
+
+# --- Study material text extraction ----------------------------------------
+@app.post("/api/material/extract")
+async def extract_material(file: UploadFile = File(...)) -> dict:
+    """Extract plain text from a PDF/DOCX/TXT study upload — no LLM call.
+    Returns text + word count + page-ish stats so the user can see what loaded."""
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(content) > resume.MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (>{resume.MAX_BYTES // (1024*1024)} MB)",
+        )
+    try:
+        text = resume.extract_text(file.filename or "material", content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not read file: {e}")
+    word_count = len(text.split())
+    # Cap to 80k chars (matches StartInterviewRequest.study_material limit).
+    truncated = False
+    if len(text) > 80000:
+        text = text[:80000]
+        truncated = True
+    return {
+        "text": text,
+        "word_count": word_count,
+        "char_count": len(text),
+        "truncated": truncated,
+        "filename": file.filename,
+    }
+
+
+# --- Resume parsing ---------------------------------------------------------
+@app.post("/api/resume/parse")
+async def parse_resume(file: UploadFile = File(...)) -> dict:
+    """Accept a PDF/DOCX/TXT resume, return a structured profile dict that the
+    frontend can drop into the setup form (name, background, role context, etc.)."""
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(content) > resume.MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (>{resume.MAX_BYTES // (1024*1024)} MB)",
+        )
+    try:
+        text = resume.extract_text(file.filename or "resume", content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not read resume: {e}")
+    try:
+        profile = await resume.parse_to_profile(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not parse resume: {e}")
+    return profile
+
+
+# --- STT endpoint -----------------------------------------------------------
+@app.post("/api/transcribe")
+async def transcribe(file: UploadFile = File(...)) -> dict:
+    """Transcribe an uploaded audio blob (webm/ogg/wav/m4a) via Whisper."""
+    if not stt.is_available():
+        raise HTTPException(status_code=501, detail="Whisper STT not installed on server")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty audio")
+    try:
+        text = stt.transcribe(content, mime=file.content_type or "audio/webm")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
+    return {"text": text}
+
+
+# --- TTS endpoints -----------------------------------------------------------
+@app.get("/api/voices")
+def get_voices() -> dict:
+    """List installed English voices on the host (macOS `say`)."""
+    return {"voices": tts.list_voices(), "available": tts.is_available()}
+
+
+class TTSRequest(BaseModel):
+    text: str = Field(..., max_length=8000)
+    voice: Optional[str] = None
+    rate: int = Field(175, ge=80, le=320, description="Words per minute, default ~175")
+
+
+@app.post("/api/tts")
+def synthesize_speech(req: TTSRequest) -> Response:
+    if not tts.is_available():
+        raise HTTPException(status_code=501, detail="Backend TTS unavailable on this host")
+    try:
+        audio = tts.synthesize(req.text, voice=req.voice, rate=req.rate)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS failed: {e}")
+    if not audio:
+        raise HTTPException(status_code=400, detail="Empty text")
+    return Response(content=audio, media_type="audio/wav")
+
+
+@app.post("/api/interview/start", response_model=StartInterviewResponse)
+async def start_interview(req: StartInterviewRequest) -> StartInterviewResponse:
+    session = store.create(
+        topic=req.topic,
+        difficulty=req.difficulty,
+        target_questions=req.target_questions,
+        candidate_name=req.candidate_name,
+        role_context=req.role_context,
+        focus_areas=req.focus_areas,
+        candidate_background=req.candidate_background,
+        scenarios_to_cover=req.scenarios_to_cover,
+        interview_style=req.interview_style,
+        persona=req.persona,
+        small_talk=req.small_talk,
+        target_minutes=req.target_minutes,
+        mode=req.mode,
+        study_material=req.study_material,
+    )
+    try:
+        parsed = await interviewer.open_interview(session)
+    except Exception as e:
+        store.drop(session.id)
+        raise HTTPException(status_code=500, detail=f"Failed to start interview: {e}")
+    return StartInterviewResponse(
+        session_id=session.id,
+        opening_message=parsed["say"],
+        speaker=parsed.get("speaker"),
+    )
+
+
+@app.post("/api/interview/{session_id}/respond", response_model=RespondResponse)
+async def respond(session_id: str, req: RespondRequest) -> RespondResponse:
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.finished:
+        raise HTTPException(status_code=400, detail="Interview already finished")
+    try:
+        parsed = await interviewer.next_turn(session, req.answer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Interviewer failed: {e}")
+    return RespondResponse(
+        reply=parsed["say"],
+        should_finish=parsed["done"],
+        turn_number=session.primary_questions_asked,
+        note=parsed.get("note"),
+        speaker=parsed.get("speaker"),
+        code_artifact=parsed.get("code"),
+    )
+
+
+@app.post("/api/interview/{session_id}/finish", response_model=FinishResponse)
+async def finish(session_id: str) -> FinishResponse:
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not session.turns:
+        raise HTTPException(status_code=400, detail="No transcript to evaluate")
+    try:
+        report = await evaluator.evaluate(
+            topic=session.topic,
+            difficulty=session.difficulty,
+            candidate_name=session.candidate_name,
+            turns=session.turns,
+            role_context=session.role_context,
+            focus_areas=session.focus_areas,
+            mode=session.mode,
+            study_material=session.study_material,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Evaluation failed: {e}")
+    session.finished = True
+    return FinishResponse(report=report)
+
+
+# --- Static frontend ---------------------------------------------------------
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+if FRONTEND_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+
+    @app.get("/")
+    def index() -> FileResponse:
+        return FileResponse(str(FRONTEND_DIR / "index.html"))
