@@ -416,6 +416,25 @@ main {
   .templates-label { grid-column: 1 / -1; }
   .templates-select { grid-column: 1 / -1; }
 }
+.template-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  margin: -10px 0 18px;
+  background: rgba(167,139,250,0.05);
+  border: 1px solid rgba(167,139,250,0.2);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.template-hint svg {
+  color: var(--violet);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.template-hint strong { color: var(--violet); font-weight: 600; }
 
 .form-grid {
   display: grid;

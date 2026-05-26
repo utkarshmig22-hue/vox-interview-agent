@@ -3,6 +3,7 @@
 Uses the Claude Agent SDK (your Claude Max plan via Claude Code).
 """
 
+import asyncio
 import json
 import os
 import re
@@ -10,6 +11,10 @@ from typing import Optional
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import AssistantMessage, TextBlock
+
+# The evaluator is the heaviest single Claude call (full transcript + model
+# answers per question). Give it more headroom than a turn.
+EVAL_TIMEOUT_SECS = 180
 
 from .models import CriterionScore, Difficulty, EvaluationReport, QuestionSolution, Turn
 
@@ -117,13 +122,21 @@ def _extract_json(text: str) -> dict:
 
 
 async def _collect_text(prompt: str, options: ClaudeAgentOptions) -> str:
-    chunks: list[str] = []
-    async for msg in query(prompt=prompt, options=options):
-        if isinstance(msg, AssistantMessage):
-            for block in msg.content:
-                if isinstance(block, TextBlock):
-                    chunks.append(block.text)
-    return "".join(chunks).strip()
+    async def _run() -> str:
+        chunks: list[str] = []
+        async for msg in query(prompt=prompt, options=options):
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        chunks.append(block.text)
+        return "".join(chunks).strip()
+
+    try:
+        return await asyncio.wait_for(_run(), timeout=EVAL_TIMEOUT_SECS)
+    except asyncio.TimeoutError:
+        raise RuntimeError(
+            f"Evaluation exceeded {EVAL_TIMEOUT_SECS}s timeout."
+        )
 
 
 async def evaluate(

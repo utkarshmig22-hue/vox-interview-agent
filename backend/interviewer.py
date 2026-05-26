@@ -16,6 +16,7 @@ If the model output isn't valid JSON (rare), we fall back to treating the
 whole response as the spoken text.
 """
 
+import asyncio
 import json
 import os
 import re
@@ -23,6 +24,10 @@ from typing import Optional
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import AssistantMessage, TextBlock
+
+# Hard ceiling on a single Claude turn. Past this we assume Claude Code
+# has hung and we bail out cleanly rather than freezing the UI forever.
+CLAUDE_TURN_TIMEOUT_SECS = 90
 
 from .models import InterviewStyle, Persona, Turn
 from .session import InterviewSession
@@ -282,13 +287,22 @@ def _strip_end_marker(text: str) -> tuple[str, bool]:
 
 
 async def _collect_text(prompt, options: ClaudeAgentOptions) -> str:
-    chunks: list[str] = []
-    async for msg in query(prompt=prompt, options=options):
-        if isinstance(msg, AssistantMessage):
-            for block in msg.content:
-                if isinstance(block, TextBlock):
-                    chunks.append(block.text)
-    return "".join(chunks).strip()
+    async def _run() -> str:
+        chunks: list[str] = []
+        async for msg in query(prompt=prompt, options=options):
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        chunks.append(block.text)
+        return "".join(chunks).strip()
+
+    try:
+        return await asyncio.wait_for(_run(), timeout=CLAUDE_TURN_TIMEOUT_SECS)
+    except asyncio.TimeoutError:
+        raise RuntimeError(
+            f"Claude turn exceeded {CLAUDE_TURN_TIMEOUT_SECS}s timeout — "
+            "the underlying Claude Code session may have hung. Try restarting the server."
+        )
 
 
 def _options(session: InterviewSession) -> ClaudeAgentOptions:

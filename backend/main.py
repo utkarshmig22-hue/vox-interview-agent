@@ -1,3 +1,4 @@
+import asyncio
 import os
 from pathlib import Path
 from typing import Optional
@@ -81,7 +82,11 @@ async def extract_material(file: UploadFile = File(...)) -> dict:
             detail=f"File too large (>{resume.MAX_BYTES // (1024*1024)} MB)",
         )
     try:
-        text = resume.extract_text(file.filename or "material", content)
+        # Sync I/O (pypdf / python-docx) → run in a thread so we don't block
+        # the FastAPI event loop. Otherwise EVERY other request queues behind it.
+        text = await asyncio.to_thread(
+            resume.extract_text, file.filename or "material", content
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -115,7 +120,9 @@ async def parse_resume(file: UploadFile = File(...)) -> dict:
             detail=f"File too large (>{resume.MAX_BYTES // (1024*1024)} MB)",
         )
     try:
-        text = resume.extract_text(file.filename or "resume", content)
+        text = await asyncio.to_thread(
+            resume.extract_text, file.filename or "resume", content
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -137,7 +144,12 @@ async def transcribe(file: UploadFile = File(...)) -> dict:
     if not content:
         raise HTTPException(status_code=400, detail="Empty audio")
     try:
-        text = stt.transcribe(content, mime=file.content_type or "audio/webm")
+        # Whisper inference is the single heaviest sync call on the server.
+        # Without to_thread, a 5-second transcribe call blocks every other
+        # request for 1-2 seconds — that's the "mid-session hang" the user saw.
+        text = await asyncio.to_thread(
+            stt.transcribe, content, file.content_type or "audio/webm"
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
     return {"text": text}
@@ -161,11 +173,15 @@ class TTSRequest(BaseModel):
 
 
 @app.post("/api/tts")
-def synthesize_speech(req: TTSRequest) -> Response:
+async def synthesize_speech(req: TTSRequest) -> Response:
     if not tts.is_available():
         raise HTTPException(status_code=501, detail="Backend TTS unavailable on this host")
     try:
-        audio = tts.synthesize(req.text, voice=req.voice, rate=req.rate)
+        # `say` is a subprocess that takes ~700ms — also wrapped in to_thread
+        # so concurrent /api/tts calls don't serialize through the event loop.
+        audio = await asyncio.to_thread(
+            tts.synthesize, req.text, req.voice, req.rate
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"TTS failed: {e}")
     if not audio:

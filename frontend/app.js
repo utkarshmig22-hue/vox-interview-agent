@@ -1591,7 +1591,14 @@ function loadTemplates() {
 function saveTemplatesObj(obj) {
   try {
     localStorage.setItem(TEMPLATES_KEY, JSON.stringify(obj));
-  } catch (_) {}
+    return true;
+  } catch (e) {
+    console.error("Failed to save templates:", e);
+    alert("Could not save template to localStorage: " + e.message +
+          "\n\nThis usually means your browser's storage quota is full or " +
+          "your browser is in private/incognito mode.");
+    return false;
+  }
 }
 
 function captureFormState() {
@@ -1653,6 +1660,9 @@ function refreshTemplatePicker(selectName) {
     sel.appendChild(opt);
   }
   $("delete-template-btn").disabled = !sel.value;
+  // Show the empty-state hint only when there really are no templates.
+  const hint = $("template-hint");
+  if (hint) hint.classList.toggle("hidden", names.length > 0);
 }
 
 function wireTemplates() {
@@ -1688,8 +1698,9 @@ function wireTemplates() {
     if (exists && !confirm(`A template named "${name}" already exists. Overwrite it?`)) return;
 
     templates[name] = { ...captureFormState(), _savedAt: new Date().toISOString() };
-    saveTemplatesObj(templates);
-    refreshTemplatePicker(name);
+    if (saveTemplatesObj(templates)) {
+      refreshTemplatePicker(name);
+    }
   });
 
   $("delete-template-btn").addEventListener("click", () => {
