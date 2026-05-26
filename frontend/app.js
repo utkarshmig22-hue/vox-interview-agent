@@ -362,18 +362,26 @@ const ackCache = new Map(); // phrase -> Blob (pre-fetched WAV)
 async function warmAcks() {
   if (!state.backendTTSAvailable) return;
   const wpm = Math.round(175 * settings.rate);
-  const all = [...ACK_PHRASES_SHORT, ...ACK_PHRASES_LONG];
-  await Promise.all(all.map(async (phrase) => {
-    if (ackCache.has(`${phrase}|${settings.voiceName}|${wpm}`)) return;
+  // Pre-warm a small subset (3 short + 3 long). The rest get fetched lazily on
+  // first use. macOS `say` is CPU-heavy — firing 13 in parallel stalled the
+  // whole machine on session start.
+  const shortSubset = ACK_PHRASES_SHORT.slice(0, 3);
+  const longSubset = [...ACK_PHRASES_LONG].sort(() => Math.random() - 0.5).slice(0, 3);
+  const phrases = [...shortSubset, ...longSubset];
+
+  // Sequential, not parallel — one `say` at a time keeps the CPU calm.
+  for (const phrase of phrases) {
+    const key = `${phrase}|${settings.voiceName}|${wpm}`;
+    if (ackCache.has(key)) continue;
     try {
       const r = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: phrase, voice: settings.voiceName, rate: wpm }),
       });
-      if (r.ok) ackCache.set(`${phrase}|${settings.voiceName}|${wpm}`, await r.blob());
+      if (r.ok) ackCache.set(key, await r.blob());
     } catch (_) {}
-  }));
+  }
 }
 
 function pickAck() {
@@ -1329,10 +1337,12 @@ async function startInterview(e) {
 
     appendTurn("interviewer", data.opening_message);
     $("mic-btn").disabled = true;
-    warmAcks();
     const voiceOverride = persona === "panel" ? voiceForSpeaker(data.speaker || "Mike") : undefined;
     await speak(data.opening_message, { voiceOverride });
     $("mic-btn").disabled = false;
+    // Warm a few acks AFTER the opening so they don't queue behind real audio.
+    // Fire-and-forget — completes in the background while the user thinks.
+    warmAcks();
     afterInterviewerSpoke();
   } catch (err) {
     alert("Failed to start interview: " + err.message);

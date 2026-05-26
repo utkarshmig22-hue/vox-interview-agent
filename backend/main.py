@@ -147,7 +147,11 @@ async def transcribe(file: UploadFile = File(...)) -> dict:
 @app.get("/api/voices")
 def get_voices() -> dict:
     """List installed English voices on the host (macOS `say`)."""
-    return {"voices": tts.list_voices(), "available": tts.is_available()}
+    available = tts.is_available()
+    return {
+        "voices": tts.list_voices() if available else [],
+        "available": available,
+    }
 
 
 class TTSRequest(BaseModel):

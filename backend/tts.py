@@ -13,6 +13,10 @@ import subprocess
 import tempfile
 from typing import Optional
 
+# ---- Module-level caches (filled on first call, never re-fetched) ----
+_available_cache: Optional[bool] = None
+_voices_cache: dict[str, list[dict]] = {}
+
 # -----------------------------------------------------------------------------
 # Pronunciation map: words that `say` (and most TTS engines) mispronounce.
 # Apply BEFORE handing the text to the synth.
@@ -107,7 +111,11 @@ def _preprocess(text: str) -> str:
 # Voice listing
 # -----------------------------------------------------------------------------
 def list_voices(language_prefix: str = "en_") -> list[dict]:
-    """Return installed `say` voices filtered to the given language prefix."""
+    """Return installed `say` voices filtered to the given language prefix.
+    Cached per language_prefix — voice list doesn't change at runtime."""
+    global _voices_cache
+    if language_prefix in _voices_cache:
+        return _voices_cache[language_prefix]
     try:
         result = subprocess.run(
             ["say", "-v", "?"],
@@ -117,6 +125,7 @@ def list_voices(language_prefix: str = "en_") -> list[dict]:
             check=True,
         )
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        _voices_cache[language_prefix] = []
         return []
 
     # Known "good" standard voices to surface above other standard voices.
@@ -168,16 +177,22 @@ def list_voices(language_prefix: str = "en_") -> list[dict]:
     voices.sort(key=lambda v: (v["_tier"], v["name"]))
     for v in voices:
         v.pop("_tier", None)
+    _voices_cache[language_prefix] = voices
     return voices
 
 
 def is_available() -> bool:
-    """Quick check that `say` is available on this system."""
+    """Quick check that `say` is available on this system.
+    Cached after first call — `say` either exists or doesn't, never changes."""
+    global _available_cache
+    if _available_cache is not None:
+        return _available_cache
     try:
         subprocess.run(["say", "-v", "?"], capture_output=True, timeout=5, check=True)
-        return True
+        _available_cache = True
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+        _available_cache = False
+    return _available_cache
 
 
 # -----------------------------------------------------------------------------
