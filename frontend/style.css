@@ -1882,7 +1882,17 @@ input[type="number"] { text-align: center; }
 
 .report-actions {
   margin-top: 26px;
-  display: flex; justify-content: center;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.report-actions .btn-primary { padding: 12px 22px; }
+@media (max-width: 720px) {
+  .report-actions { flex-direction: column; }
+  .report-actions button { width: 100%; }
 }
 
 /* =========================================================

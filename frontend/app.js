@@ -850,6 +850,7 @@ function renderHistory() {
       <div class="history-verdict-tag ${verdictClass(it.verdict)}">${escapeHTML(it.verdict)}</div>
     `;
     row.addEventListener("click", () => {
+      state.currentReport = it.report;
       renderReport(it.report);
       showScreen("report");
     });
@@ -1563,6 +1564,156 @@ function escapeHTML(s) {
   }[c]));
 }
 
+// ---------- Report → Markdown export ----------
+function _mdQuote(text) {
+  // Render text as a > blockquote, line by line.
+  return String(text || "").trim().split("\n").map(l => "> " + l).join("\n");
+}
+
+function buildReportMarkdown(report) {
+  const date = new Date().toLocaleString();
+  const lines = [];
+  lines.push(`# Interview Report`);
+  lines.push("");
+  lines.push(`- **Topic:** ${report.topic || ""}`);
+  lines.push(`- **Difficulty:** ${report.difficulty || ""}`);
+  if (report.candidate_name) lines.push(`- **Candidate:** ${report.candidate_name}`);
+  lines.push(`- **Generated:** ${date}`);
+  lines.push("");
+  lines.push(`## Overall Score: ${report.overall_score}/10  —  ${report.verdict}`);
+  lines.push("");
+  if (report.summary) {
+    lines.push(report.summary);
+    lines.push("");
+  }
+
+  if (Array.isArray(report.criteria) && report.criteria.length) {
+    lines.push("## Criteria");
+    lines.push("");
+    lines.push("| Criterion | Score | Notes |");
+    lines.push("|---|---|---|");
+    for (const c of report.criteria) {
+      const rationale = (c.rationale || "").replace(/\|/g, "\\|");
+      lines.push(`| ${c.name} | ${c.score}/10 | ${rationale} |`);
+    }
+    lines.push("");
+  }
+
+  if (Array.isArray(report.strengths) && report.strengths.length) {
+    lines.push("## Strengths");
+    lines.push("");
+    for (const s of report.strengths) lines.push(`- ${s}`);
+    lines.push("");
+  }
+
+  if (Array.isArray(report.gaps) && report.gaps.length) {
+    lines.push("## Gaps & growth areas");
+    lines.push("");
+    for (const g of report.gaps) lines.push(`- ${g}`);
+    lines.push("");
+  }
+
+  // Questions + model answers
+  if (Array.isArray(report.question_solutions) && report.question_solutions.length) {
+    lines.push("## Questions and model answers");
+    lines.push("");
+    report.question_solutions.forEach((q, i) => {
+      lines.push(`### Q${i + 1}. ${q.question || ""}`);
+      lines.push("");
+      lines.push(`**Your answer:**`);
+      lines.push("");
+      lines.push(_mdQuote(q.candidate_answer || "*(no answer given)*"));
+      lines.push("");
+      lines.push(`**Model answer:**`);
+      lines.push("");
+      lines.push(q.model_answer || "");
+      lines.push("");
+      if (q.feedback) {
+        lines.push(`**Where you stood:** ${q.feedback}`);
+        lines.push("");
+      }
+      lines.push("---");
+      lines.push("");
+    });
+  }
+
+  // Full transcript at the bottom
+  if (Array.isArray(report.transcript) && report.transcript.length) {
+    lines.push("## Full transcript");
+    lines.push("");
+    for (const t of report.transcript) {
+      const who = t.role === "interviewer" ? "**Interviewer**" : "**You**";
+      lines.push(`${who}: ${t.content}`);
+      lines.push("");
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function buildQAMarkdown(report) {
+  // Compact study sheet — just questions + model answers.
+  const lines = [];
+  lines.push(`# Q&A — ${report.topic || "Interview"}`);
+  lines.push("");
+  lines.push(`*${report.difficulty || ""}${report.candidate_name ? " · " + report.candidate_name : ""} · ${new Date().toLocaleDateString()}*`);
+  lines.push("");
+  if (!Array.isArray(report.question_solutions) || !report.question_solutions.length) {
+    lines.push("_(No question/answer pairs were captured for this session.)_");
+    return lines.join("\n");
+  }
+  report.question_solutions.forEach((q, i) => {
+    lines.push(`## Q${i + 1}. ${q.question || ""}`);
+    lines.push("");
+    lines.push(`**Your answer:**`);
+    lines.push("");
+    lines.push(_mdQuote(q.candidate_answer || "*(no answer given)*"));
+    lines.push("");
+    lines.push(`**Model answer:**`);
+    lines.push("");
+    lines.push(q.model_answer || "");
+    lines.push("");
+    if (q.feedback) {
+      lines.push(`> _${q.feedback}_`);
+      lines.push("");
+    }
+  });
+  return lines.join("\n");
+}
+
+function _safeFilename(s) {
+  return String(s || "interview")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "interview";
+}
+
+function downloadText(text, filename, mime = "text/markdown;charset=utf-8") {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function copyToClipboard(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    if (btn) {
+      const orig = btn.querySelector("span").textContent;
+      btn.querySelector("span").textContent = "Copied!";
+      setTimeout(() => { btn.querySelector("span").textContent = orig; }, 1200);
+    }
+  } catch (e) {
+    alert("Couldn't copy to clipboard: " + e.message);
+  }
+}
+
 // ---------- Setup-screen interactions ----------
 function wireSegmented(segId, hiddenId) {
   document.querySelectorAll(`#${segId} .seg-opt`).forEach((opt) => {
@@ -2097,6 +2248,27 @@ function init() {
     cancelSpeech();
     stopListening();
     showScreen("setup");
+  });
+
+  // ---- Report downloads ----
+  $("download-report-btn").addEventListener("click", () => {
+    const r = state.currentReport;
+    if (!r) return;
+    const md = buildReportMarkdown(r);
+    const fname = `vox-report-${_safeFilename(r.topic)}-${new Date().toISOString().slice(0,10)}.md`;
+    downloadText(md, fname);
+  });
+  $("download-qa-btn").addEventListener("click", () => {
+    const r = state.currentReport;
+    if (!r) return;
+    const md = buildQAMarkdown(r);
+    const fname = `vox-qa-${_safeFilename(r.topic)}-${new Date().toISOString().slice(0,10)}.md`;
+    downloadText(md, fname);
+  });
+  $("copy-report-btn").addEventListener("click", (e) => {
+    const r = state.currentReport;
+    if (!r) return;
+    copyToClipboard(buildReportMarkdown(r), e.currentTarget);
   });
 
   // ---- History nav ----
