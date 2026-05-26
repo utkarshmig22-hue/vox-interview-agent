@@ -19,7 +19,7 @@ _key = os.environ.get("ANTHROPIC_API_KEY", "")
 if not _key or _key.startswith("sk-ant-xxxxxxxx"):
     os.environ.pop("ANTHROPIC_API_KEY", None)
 
-from . import evaluator, interviewer, resume, stt, tts  # noqa: E402
+from . import evaluator, interviewer, report_export, resume, stt, tts  # noqa: E402
 from .models import (  # noqa: E402
     FinishResponse,
     RespondRequest,
@@ -104,6 +104,37 @@ async def extract_material(file: UploadFile = File(...)) -> dict:
         "truncated": truncated,
         "filename": file.filename,
     }
+
+
+# --- Report export (Word .docx) --------------------------------------------
+class ReportExportRequest(BaseModel):
+    report: dict
+    format: str = Field("full", pattern="^(full|qa)$",
+                        description="'full' (everything) or 'qa' (Q&A study sheet)")
+
+
+@app.post("/api/report/export")
+async def export_report(req: ReportExportRequest) -> Response:
+    """Generate a Word .docx of the interview report. Returns the binary file."""
+    try:
+        if req.format == "qa":
+            data = await asyncio.to_thread(report_export.build_qa_docx, req.report)
+            stem = "vox-qa"
+        else:
+            data = await asyncio.to_thread(report_export.build_full_docx, req.report)
+            stem = "vox-report"
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not build report: {e}")
+
+    topic = (req.report.get("topic") or "interview").lower()
+    safe_topic = "".join(c if c.isalnum() else "-" for c in topic).strip("-")[:60] or "interview"
+    filename = f"{stem}-{safe_topic}.docx"
+
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # --- Resume parsing ---------------------------------------------------------

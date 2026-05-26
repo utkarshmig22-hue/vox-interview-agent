@@ -1691,6 +1691,10 @@ function _safeFilename(s) {
 
 function downloadText(text, filename, mime = "text/markdown;charset=utf-8") {
   const blob = new Blob([text], { type: mime });
+  triggerDownload(blob, filename);
+}
+
+function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -1699,6 +1703,40 @@ function downloadText(text, filename, mime = "text/markdown;charset=utf-8") {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Backend-generated Word .docx of the report.
+async function downloadDocx(report, format, btn) {
+  if (!report) return;
+  const origLabel = btn ? btn.querySelector("span").textContent : null;
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.querySelector("span").textContent = "Generating…";
+    }
+    const r = await fetch("/api/report/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ report, format }),
+    });
+    if (!r.ok) {
+      let detail = r.statusText;
+      try { const j = await r.json(); detail = j.detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    const blob = await r.blob();
+    const stem = format === "qa" ? "vox-qa" : "vox-report";
+    const topic = _safeFilename(report.topic);
+    const date = new Date().toISOString().slice(0, 10);
+    triggerDownload(blob, `${stem}-${topic}-${date}.docx`);
+  } catch (e) {
+    alert("Download failed: " + e.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.querySelector("span").textContent = origLabel;
+    }
+  }
 }
 
 async function copyToClipboard(text, btn) {
@@ -2250,21 +2288,15 @@ function init() {
     showScreen("setup");
   });
 
-  // ---- Report downloads ----
-  $("download-report-btn").addEventListener("click", () => {
-    const r = state.currentReport;
-    if (!r) return;
-    const md = buildReportMarkdown(r);
-    const fname = `vox-report-${_safeFilename(r.topic)}-${new Date().toISOString().slice(0,10)}.md`;
-    downloadText(md, fname);
+  // ---- Report downloads (Word .docx) ----
+  $("download-report-btn").addEventListener("click", (e) => {
+    downloadDocx(state.currentReport, "full", e.currentTarget);
   });
-  $("download-qa-btn").addEventListener("click", () => {
-    const r = state.currentReport;
-    if (!r) return;
-    const md = buildQAMarkdown(r);
-    const fname = `vox-qa-${_safeFilename(r.topic)}-${new Date().toISOString().slice(0,10)}.md`;
-    downloadText(md, fname);
+  $("download-qa-btn").addEventListener("click", (e) => {
+    downloadDocx(state.currentReport, "qa", e.currentTarget);
   });
+  // Copy still uses Markdown — pasting docx blobs to clipboard isn't a thing
+  // most apps handle gracefully; markdown text pastes cleanly everywhere.
   $("copy-report-btn").addEventListener("click", (e) => {
     const r = state.currentReport;
     if (!r) return;
