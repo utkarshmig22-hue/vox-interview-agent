@@ -256,6 +256,7 @@ async def start_interview(req: StartInterviewRequest) -> StartInterviewResponse:
         custom_persona_prompt=req.custom_persona_prompt,
         adaptive_difficulty=req.adaptive_difficulty,
         custom_criteria=req.custom_criteria,
+        resume_centric=req.resume_centric,
     )
     try:
         parsed = await interviewer.open_interview(session)

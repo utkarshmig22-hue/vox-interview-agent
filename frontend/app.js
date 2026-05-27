@@ -1411,6 +1411,7 @@ async function startInterview(e) {
       adaptive_difficulty: true,
       custom_criteria: (($("custom-criteria") && $("custom-criteria").value.trim()) || "")
         .split(",").map(s => s.trim()).filter(Boolean).slice(0, 8) || null,
+      resume_centric: !$("resume-centric") ? true : $("resume-centric").checked,
     });
     state.sessionId = data.session_id;
     state.topic = topic;

@@ -29,6 +29,7 @@ class InterviewSession:
     custom_persona_name: Optional[str] = None
     custom_persona_prompt: Optional[str] = None
     adaptive_difficulty: bool = True
+    resume_centric: bool = True
     custom_criteria: Optional[list[str]] = None
     turns: list[Turn] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -114,6 +115,7 @@ class SessionStore:
         custom_persona_prompt: Optional[str] = None,
         adaptive_difficulty: bool = True,
         custom_criteria: Optional[list[str]] = None,
+        resume_centric: bool = True,
     ) -> InterviewSession:
         session_id = uuid.uuid4().hex[:12]
         session = InterviewSession(
@@ -135,6 +137,7 @@ class SessionStore:
             custom_persona_name=custom_persona_name,
             custom_persona_prompt=custom_persona_prompt,
             adaptive_difficulty=adaptive_difficulty,
+            resume_centric=resume_centric,
             custom_criteria=custom_criteria,
             started_at=None,
         )

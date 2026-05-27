@@ -221,7 +221,24 @@ def _build_system_prompt(session: InterviewSession) -> str:
 
     role_section       = _optional_section("Target role / context", session.role_context)
     focus_section      = _optional_section("Focus areas to test", session.focus_areas)
-    background_section = _optional_section("Candidate's background", session.candidate_background)
+    # Background is only fed into the prompt when the user wants a
+    # resume-centric interview. If they've toggled it off, we skip it
+    # entirely so the interviewer treats the topic generically — useful for
+    # practising in domains the candidate doesn't yet have experience in.
+    if getattr(session, "resume_centric", True):
+        background_section = _optional_section(
+            "Candidate's background — reference it naturally when asking questions",
+            session.candidate_background,
+        )
+    else:
+        background_section = (
+            "\n## Generic-topic mode\n"
+            "The candidate has explicitly asked you to IGNORE their personal "
+            "background and instead test them on the topic generically — they "
+            "want to practise a domain they don't yet have experience in. Do "
+            "NOT reference any prior work history or specific companies. Treat "
+            "them as a fresh candidate for this topic and difficulty level.\n"
+        )
     scenarios_section  = _optional_section("Scenarios to cover", session.scenarios_to_cover)
     time_section       = _time_clause(session)
 

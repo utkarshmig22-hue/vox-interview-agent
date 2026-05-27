@@ -67,6 +67,15 @@ class StartInterviewRequest(BaseModel):
         True,
         description="If true, the interviewer ramps difficulty up/down based on answer quality.",
     )
+    resume_centric: bool = Field(
+        True,
+        description=(
+            "If true, the interviewer grounds questions in the candidate's "
+            "background ('tell me about your time at X'). If false, the "
+            "interview ignores background and tests the topic generically — "
+            "useful when practising for a domain you don't yet have experience in."
+        ),
+    )
 
     # ---- Custom evaluation criteria (overrides the default 5) ----
     custom_criteria: Optional[list[str]] = Field(
