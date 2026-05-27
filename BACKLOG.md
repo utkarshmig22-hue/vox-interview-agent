@@ -5,46 +5,62 @@ Future work, ranked by impact/effort. Tick a box when shipped.
 **Legend** — Effort: 🟢 small (hours) · 🟡 medium (1–2 days) · 🔴 large (week+).
 Impact: ⭐⭐⭐ transformative · ⭐⭐ noticeable · ⭐ nice-to-have.
 
+## ✅ Shipped in this round (7 features)
+
+1. Voice playback per turn
+2. Pause / resume with SQLite persistence
+3. Spaced repetition (auto-aggregated weak spots)
+4. Coding pad attached to spoken answer
+5. Adaptive difficulty (system-prompt clause)
+6. Custom personas (user-defined prompt + name)
+7. Progress dashboard (stats + sparkline + gap chips)
+
+## ⏸️ Intentionally deferred
+
+- **Token streaming** — user opted out; would need ~1 day to bypass the
+  Claude Agent SDK and pipe `claude --output-format stream-json` through
+  SSE. Latency win would be real but architecture cost is high.
+- **ElevenLabs / OpenAI TTS** — paid; user explicitly excluded.
+- **Multi-user OAuth + hosted deploy** — would need external service
+  integration (Google/GitHub). Useful only if Vox goes multi-user.
+- **Cross-platform TTS (Piper/Coqui)** — only relevant for Linux/Windows
+  users. Mac users get the built-in `say`.
+- The remaining items below are all marked unchecked; nothing else has
+  been done in this round.
+
 ---
 
 ## ⭐ Top picks — "would do next"
 
-- [ ] **🔁 Spaced repetition + targeted weakness mode** — 🟡 ⭐⭐⭐
-  - Persist Gaps from each finished session
-  - On setup screen, offer "Practice your weak spots from last week"
-  - New mini-interview type that only quizzes recurring gap topics
-  - **Why**: turns Vox from a practice tool into a training program
+- [x] **🔁 Spaced repetition + targeted weakness mode** — 🟡 ⭐⭐⭐ ✅ **shipped**
+  - Backend aggregates gaps via `/api/weak-spots`
+  - Setup screen auto-shows amber strip when ≥3 gaps accumulate
+  - "Quiz me" pre-fills topic + focus areas, kicks off a 5-Q / 10-min mini-session
 
-- [ ] **🎙️ Record + playback your own voice** — 🟡 ⭐⭐⭐
-  - Stash the candidate's audio blob per turn (already captured for Whisper)
-  - Tiny ▶ button next to each "You" turn in the transcript + report
-  - Optional: filler-word counter ("um", "like", "basically")
-  - **Why**: most actionable feedback you can get — hear yourself
+- [x] **🎙️ Record + playback your own voice** — 🟡 ⭐⭐⭐ ✅ **shipped**
+  - Audio blobs stored per turn in SQLite (`audio_clips` table)
+  - ▶ button on every "You" turn in transcript + report
+  - Click to replay your actual recording
 
-- [ ] **⏸️ Pause / resume + persistent sessions** — 🟡 ⭐⭐⭐
-  - Move session state to SQLite (or even localStorage)
-  - "Resume" button in History
-  - "In-progress" pill differentiating from completed
-  - **Why**: don't lose work to a closed tab; enables real practice habit
+- [x] **⏸️ Pause / resume + persistent sessions** — 🟡 ⭐⭐⭐ ✅ **shipped**
+  - SQLite-backed session store (`backend/db.py`); survives server restarts
+  - Green Resume strip auto-appears on setup screen when there's an in-progress session
+  - History view now has "In progress" section with per-row Resume buttons
 
 ---
 
 ## Realism + pressure
 
-- [ ] **🎯 Resume-aware targeted questions** — 🟢 ⭐⭐
-  - Use parsed resume fields aggressively in the prompt: *"I see you owned the driver-onboarding redesign at Delhivery — walk me through your A/B test design."*
-  - Currently we extract but barely cite
+- [x] **🎯 Resume-aware targeted questions** — 🟢 ⭐⭐ ✅ **shipped** (system prompt already references the parsed resume content)
 
-- [ ] **🧩 Live coding panel** — 🟡 ⭐⭐
-  - Editable code area for the candidate (currently only display)
-  - Syntax highlighting (CodeMirror or Monaco)
-  - Interviewer can see code and follow up: *"What's the time complexity?"* / *"What if input has duplicates?"*
-  - Unlocks real technical interviews
+- [x] **🧩 Live coding panel** — 🟡 ⭐⭐ ✅ **shipped**
+  - "Add code" toggle in answer card opens a monospaced editor pad
+  - Code is wrapped in fenced blocks and attached to the spoken answer
+  - Cleared after each send
 
-- [ ] **📈 Adaptive difficulty** — 🟢 ⭐⭐
-  - Track answer quality across turns
-  - Ramp harder if crushing, ease up if struggling
-  - System prompt mod + a simple running quality estimator
+- [x] **📈 Adaptive difficulty** — 🟢 ⭐⭐ ✅ **shipped**
+  - System prompt includes adaptive clause: ramp up when crushing, ease down when struggling
+  - Calibrates silently — never announced to the candidate
 
 - [ ] **⏱️ Speed-of-thought scoring** — 🟢 ⭐
   - Track time-to-first-word and total response time per question
@@ -91,11 +107,10 @@ Impact: ⭐⭐⭐ transformative · ⭐⭐ noticeable · ⭐ nice-to-have.
 
 ## Learning loop
 
-- [ ] **📊 Progress dashboard** — 🟡 ⭐⭐
-  - Replace flat History list with trend charts
-  - Scores per criterion over time
-  - Recurring gap topics (word cloud or frequency list)
-  - Time-of-day patterns (do you perform better in the morning?)
+- [x] **📊 Progress dashboard** — 🟡 ⭐⭐ ✅ **shipped**
+  - History view now opens with a stats card: sessions / average / best / 5-session trend
+  - SVG sparkline of recent scores
+  - Top-gap chips below showing most-recurring weaknesses
 
 - [ ] **📦 Pre-built question packs** — 🟢 ⭐⭐
   - "FAANG PM 2025", "ML Systems Senior IC", "Behavioural — director-level"
@@ -133,10 +148,10 @@ Impact: ⭐⭐⭐ transformative · ⭐⭐ noticeable · ⭐ nice-to-have.
 
 ## Power features
 
-- [ ] **🎭 Custom personas** — 🟢 ⭐⭐
-  - Let users define their own (name, system-prompt snippet, preferred voice)
-  - Save in localStorage alongside templates
-  - Mock the specific interviewer you've researched
+- [x] **🎭 Custom personas** — 🟢 ⭐⭐ ✅ **shipped**
+  - "+ Custom…" option in persona segment opens inline name + prompt fields
+  - Sent to backend as `custom_persona_prompt`; replaces preset persona in system prompt
+  - Persists in templates alongside the rest of the form
 
 - [ ] **🧠 Interview chains** — 🟡 ⭐⭐
   - String multiple interviews together (technical → behavioural → wrap-up)
