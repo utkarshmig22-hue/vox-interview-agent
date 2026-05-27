@@ -30,7 +30,7 @@ from claude_agent_sdk.types import AssistantMessage, TextBlock
 CLAUDE_TURN_TIMEOUT_SECS = 90
 
 from .models import InterviewStyle, Persona, Turn
-from .session import InterviewSession
+from .session import InterviewSession, store
 
 END_MARKER = "[INTERVIEW_COMPLETE]"
 
@@ -202,7 +202,22 @@ def _build_system_prompt(session: InterviewSession) -> str:
         else "The candidate's name is unknown — feel free to ask early on."
     )
     style_blurb = _STYLE_DESCRIPTIONS.get(session.interview_style, _STYLE_DESCRIPTIONS["mixed"])
-    persona_blurb = _PERSONA_INSTRUCTIONS.get(session.persona, _PERSONA_INSTRUCTIONS["hiring-manager"])
+    # Custom persona overrides the preset library.
+    if session.persona == "custom" and (session.custom_persona_prompt or "").strip():
+        persona_blurb = session.custom_persona_prompt.strip()
+    else:
+        persona_blurb = _PERSONA_INSTRUCTIONS.get(session.persona, _PERSONA_INSTRUCTIONS["hiring-manager"])
+
+    adaptive_clause = ""
+    if session.adaptive_difficulty:
+        adaptive_clause = (
+            "\n## Adaptive difficulty\n"
+            "Watch the candidate's answer quality across turns. If they keep crushing it, "
+            "ramp difficulty UP — push into deeper trade-offs, edge cases, follow-ups they "
+            "can't dodge. If they're clearly struggling, ease DOWN — pick simpler aspects "
+            "or a different angle to recover their footing. Never call this out explicitly; "
+            "just calibrate.\n"
+        )
 
     role_section       = _optional_section("Target role / context", session.role_context)
     focus_section      = _optional_section("Focus areas to test", session.focus_areas)
@@ -240,7 +255,7 @@ Calibrate every question to a {session.difficulty}-level candidate.
 
 # Interview style
 {style_blurb}
-{role_section}{focus_section}{background_section}{scenarios_section}{small_talk_clause}{panel_clause}{time_section}
+{role_section}{focus_section}{background_section}{scenarios_section}{small_talk_clause}{panel_clause}{adaptive_clause}{time_section}
 # Output format — IMPORTANT
 Return ONLY a single JSON object with this exact shape, no prose around it, no markdown fences:
 
@@ -365,6 +380,7 @@ async def open_interview(session: InterviewSession) -> dict:
     if parsed["speaker"]:
         session.last_speaker = parsed["speaker"]
     session.primary_questions_asked = 1
+    store.save(session)
     return parsed
 
 
@@ -397,4 +413,5 @@ async def next_turn(session: InterviewSession, candidate_answer: str) -> dict:
 
     if parsed["done"]:
         session.finished = True
+    store.save(session)
     return parsed

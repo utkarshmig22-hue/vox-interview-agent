@@ -19,7 +19,7 @@ _key = os.environ.get("ANTHROPIC_API_KEY", "")
 if not _key or _key.startswith("sk-ant-xxxxxxxx"):
     os.environ.pop("ANTHROPIC_API_KEY", None)
 
-from . import evaluator, interviewer, report_export, resume, stt, tts  # noqa: E402
+from . import db, evaluator, interviewer, report_export, resume, stt, tts  # noqa: E402
 from .models import (  # noqa: E402
     FinishResponse,
     RespondRequest,
@@ -237,6 +237,9 @@ async def start_interview(req: StartInterviewRequest) -> StartInterviewResponse:
         target_minutes=req.target_minutes,
         mode=req.mode,
         study_material=req.study_material,
+        custom_persona_name=req.custom_persona_name,
+        custom_persona_prompt=req.custom_persona_prompt,
+        adaptive_difficulty=req.adaptive_difficulty,
     )
     try:
         parsed = await interviewer.open_interview(session)
@@ -271,6 +274,83 @@ async def respond(session_id: str, req: RespondRequest) -> RespondResponse:
     )
 
 
+# --- Sessions list / resume / audio playback / spaced repetition ----------
+@app.get("/api/sessions")
+def list_sessions(status: str = "all") -> dict:
+    """`status`: 'all' | 'finished' | 'in_progress'. Returns sessions newest first."""
+    only = None
+    if status == "finished": only = True
+    if status == "in_progress": only = False
+    return {"sessions": db.list_sessions(only_finished=only, limit=100)}
+
+
+@app.get("/api/interview/{session_id}/resume")
+def resume_session(session_id: str) -> dict:
+    """Hydrate an interview so the frontend can pick up where it left off
+    (after a reload, after a different device — anywhere SQLite is reachable)."""
+    session = store.get(session_id)
+    if session is None:
+        raise HTTPException(404, "Session not found")
+    return {
+        "id": session.id,
+        "topic": session.topic,
+        "difficulty": session.difficulty,
+        "candidate_name": session.candidate_name,
+        "target_questions": session.target_questions,
+        "target_minutes": session.target_minutes,
+        "persona": session.persona,
+        "interview_style": session.interview_style,
+        "mode": session.mode,
+        "finished": session.finished,
+        "primary_questions_asked": session.primary_questions_asked,
+        "turns": [{"role": t.role, "content": t.content} for t in session.turns],
+        "notes": list(session.notes),
+        "last_speaker": session.last_speaker,
+        "report": session._report,
+    }
+
+
+@app.post("/api/interview/{session_id}/audio/{turn_index}")
+async def save_turn_audio(session_id: str, turn_index: int, file: UploadFile = File(...)) -> dict:
+    """Store the candidate's audio for a turn so we can play it back in the report."""
+    if not store.get(session_id):
+        raise HTTPException(404, "Session not found")
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "Empty audio")
+    await asyncio.to_thread(
+        db.save_audio, session_id, turn_index, content, file.content_type or "audio/webm"
+    )
+    return {"ok": True}
+
+
+@app.get("/api/interview/{session_id}/audio/{turn_index}")
+def get_turn_audio(session_id: str, turn_index: int) -> Response:
+    result = db.get_audio(session_id, turn_index)
+    if not result:
+        raise HTTPException(404, "Audio not found")
+    audio, mime = result
+    return Response(content=audio, media_type=mime)
+
+
+@app.get("/api/weak-spots")
+def weak_spots() -> dict:
+    """Aggregated gaps from recent finished interviews — drives the
+    'Practice your weak spots' button on the setup screen."""
+    raw = db.aggregate_gaps(limit_sessions=20)
+    # Count + collapse near-duplicates by simple lower-case normalisation
+    counts: dict[str, dict] = {}
+    for item in raw:
+        key = item["gap"].strip().lower()[:120]
+        if key not in counts:
+            counts[key] = {"gap": item["gap"], "count": 0, "latest_topic": item["topic"], "latest_date": item["date"]}
+        counts[key]["count"] += 1
+        if item["date"] > counts[key]["latest_date"]:
+            counts[key]["latest_topic"] = item["topic"]
+            counts[key]["latest_date"] = item["date"]
+    return {"gaps": sorted(counts.values(), key=lambda g: (-g["count"], -g["latest_date"]))[:25]}
+
+
 @app.post("/api/interview/{session_id}/finish", response_model=FinishResponse)
 async def finish(session_id: str) -> FinishResponse:
     session = store.get(session_id)
@@ -292,6 +372,9 @@ async def finish(session_id: str) -> FinishResponse:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Evaluation failed: {e}")
     session.finished = True
+    # Cache report so weak-spots and resume can re-render it without recomputing.
+    session._report = report.model_dump() if hasattr(report, "model_dump") else dict(report)
+    store.save(session)
     return FinishResponse(report=report)
 
 

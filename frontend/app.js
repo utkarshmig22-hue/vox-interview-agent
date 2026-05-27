@@ -9,6 +9,11 @@ const API = {
   finish: (id) => `/api/interview/${id}/finish`,
   transcribe: "/api/transcribe",
   health: "/api/health",
+  sessions: (status) => `/api/sessions?status=${status}`,
+  resume: (id) => `/api/interview/${id}/resume`,
+  audioSave: (id, idx) => `/api/interview/${id}/audio/${idx}`,
+  audioGet: (id, idx) => `/api/interview/${id}/audio/${idx}`,
+  weakSpots: "/api/weak-spots",
 };
 
 const state = {
@@ -129,12 +134,24 @@ function setMicLabel(label) {
   $("mic-label").textContent = label;
 }
 
-function appendTurn(role, text) {
+function appendTurn(role, text, { turnIndex = null } = {}) {
   const wrap = document.createElement("div");
   wrap.className = `turn ${role}`;
   const label = document.createElement("div");
   label.className = "label";
   label.textContent = role === "interviewer" ? "Interviewer" : "You";
+  // Candidate turns get a ▶ button to replay their own audio.
+  if (role === "candidate" && turnIndex !== null && state.sessionId) {
+    const playBtn = document.createElement("button");
+    playBtn.type = "button";
+    playBtn.className = "turn-play-btn";
+    playBtn.title = "Play your recording";
+    playBtn.dataset.session = state.sessionId;
+    playBtn.dataset.turn = String(turnIndex);
+    playBtn.innerHTML = '<svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>';
+    playBtn.addEventListener("click", () => playTurnAudio(playBtn));
+    label.appendChild(playBtn);
+  }
   const body = document.createElement("div");
   body.textContent = text;
   wrap.appendChild(label);
@@ -142,6 +159,26 @@ function appendTurn(role, text) {
   const t = $("transcript");
   t.appendChild(wrap);
   t.scrollTop = t.scrollHeight;
+}
+
+// ---------- Voice playback of candidate turns ----------
+async function playTurnAudio(btn) {
+  const sid = btn.dataset.session;
+  const idx = btn.dataset.turn;
+  try {
+    btn.classList.add("playing");
+    const r = await fetch(API.audioGet(sid, idx));
+    if (!r.ok) throw new Error("No recording");
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onended = () => { btn.classList.remove("playing"); URL.revokeObjectURL(url); };
+    audio.onerror = () => { btn.classList.remove("playing"); URL.revokeObjectURL(url); };
+    await audio.play();
+  } catch (e) {
+    btn.classList.remove("playing");
+    btn.title = "No recording stored for this turn";
+  }
 }
 
 // ---------- Browser capability check ----------
@@ -826,15 +863,59 @@ function pushHistory(report) {
   saveHistory(arr);
 }
 
-function renderHistory() {
+async function renderHistory() {
   const list = $("history-list");
   if (!list) return;
   const items = loadHistory().slice().reverse();
-  if (!items.length) {
-    list.innerHTML = '<div class="history-empty">No completed interviews yet — finish one and it\'ll show up here.</div>';
+  // Progress dashboard at top
+  renderProgress(items);
+
+  // Also fetch in-progress sessions from the backend (separate from finished history).
+  let inProgress = [];
+  try {
+    const r = await fetch(API.sessions("in_progress"));
+    if (r.ok) inProgress = (await r.json()).sessions || [];
+  } catch (_) {}
+
+  if (!items.length && !inProgress.length) {
+    list.innerHTML = '<div class="history-empty">No interviews yet — finish or start one and it\'ll show up here.</div>';
     return;
   }
   list.innerHTML = "";
+
+  // In-progress section
+  if (inProgress.length) {
+    const lbl = document.createElement("div");
+    lbl.className = "history-section-label";
+    lbl.textContent = "In progress";
+    list.appendChild(lbl);
+    for (const s of inProgress) {
+      const row = document.createElement("div");
+      row.className = "history-item in-progress";
+      const when = new Date(s.updated_at * 1000);
+      row.innerHTML = `
+        <div class="history-score">↻</div>
+        <div class="history-meta-main">
+          <div class="history-topic">${escapeHTML(s.topic || "Untitled")}</div>
+          <div class="history-meta">${s.mode === "study" ? "Study" : "Job"} · paused ${when.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</div>
+        </div>
+        <button type="button" class="btn-primary btn-sm history-resume">Resume</button>
+      `;
+      row.querySelector(".history-resume").addEventListener("click", (e) => {
+        e.stopPropagation();
+        resumeSession(s.id);
+      });
+      list.appendChild(row);
+    }
+  }
+
+  // Finished section
+  if (items.length) {
+    const lbl = document.createElement("div");
+    lbl.className = "history-section-label";
+    lbl.textContent = "Completed";
+    list.appendChild(lbl);
+  }
   for (const it of items) {
     const row = document.createElement("div");
     row.className = "history-item";
@@ -1051,6 +1132,9 @@ async function handleWhisperStop() {
 
   const blob = new Blob(state.recordingChunks, { type: mimeType });
   state.recordingChunks = [];
+  // Hold onto this blob so we can upload it once we know the turn index
+  // (i.e. after sendAnswer has done its appendTurn). We'll wire it in below.
+  state._lastCandidateAudio = blob;
 
   if (blob.size < 1024) {
     // Too short to be real speech — bail
@@ -1314,6 +1398,9 @@ async function startInterview(e) {
       target_minutes: targetMinutes,
       mode,
       study_material: studyMaterial,
+      custom_persona_name: persona === "custom" ? ($("custom-persona-name").value.trim() || null) : null,
+      custom_persona_prompt: persona === "custom" ? ($("custom-persona-prompt").value.trim() || null) : null,
+      adaptive_difficulty: true,
     });
     state.sessionId = data.session_id;
     state.topic = topic;
@@ -1382,7 +1469,25 @@ async function sendAnswer(text) {
   if (!state.sessionId || state.awaitingReply) return;
   if (state.recognising) stopListening();
 
-  appendTurn("candidate", text);
+  // If the code pad has content, attach it as a fenced block on the answer.
+  const codePad = $("code-pad");
+  const code = codePad && !codePad.classList.contains("hidden") ? codePad.value.trim() : "";
+  const fullAnswer = code ? `${text}\n\n\`\`\`\n${code}\n\`\`\`` : text;
+
+  // Determine the index this candidate turn will occupy in the transcript.
+  const turnIndex = $("transcript").querySelectorAll(".turn").length;
+  appendTurn("candidate", fullAnswer, { turnIndex });
+
+  // Fire-and-forget: upload the captured audio for this turn so we can play
+  // it back in the report. Doesn't block the send.
+  if (state._lastCandidateAudio && state._lastCandidateAudio.size > 0) {
+    const audioBlob = state._lastCandidateAudio;
+    state._lastCandidateAudio = null;
+    const fd = new FormData();
+    fd.append("file", audioBlob, "answer.webm");
+    fetch(API.audioSave(state.sessionId, turnIndex), { method: "POST", body: fd }).catch(() => {});
+  }
+
   state.awaitingReply = true;
   setState("thinking", "Thinking…");
   $("mic-btn").disabled = true;
@@ -1392,7 +1497,7 @@ async function sendAnswer(text) {
   // Fire ack and Claude call in parallel. Ack plays immediately so the user
   // hears something within ~50ms instead of staring at silence for 4-5s.
   const ackPromise = playAck();
-  const claudePromise = postJSON(API.respond(state.sessionId), { answer: text });
+  const claudePromise = postJSON(API.respond(state.sessionId), { answer: fullAnswer });
 
   try {
     // Wait for BOTH: the substantive reply waits for the ack to finish so we
@@ -1434,6 +1539,9 @@ async function sendAnswer(text) {
     state.awaitingReply = false;
     $("mic-btn").disabled = false;
     $("text-answer").disabled = false;
+    // Clear the code pad too if the user used it.
+    const cp = $("code-pad");
+    if (cp && !cp.classList.contains("hidden")) cp.value = "";
     refreshSendBtnState();
   }
 }
@@ -1762,7 +1870,12 @@ function wireSegmented(segId, hiddenId) {
       });
       opt.classList.add("active");
       opt.setAttribute("aria-checked", "true");
-      $(hiddenId).value = opt.dataset.value;
+      // Special-case: persona segment has a "__custom__" sentinel
+      if (segId === "persona-seg") {
+        applyCustomPersonaUI(opt.dataset.value);
+      } else {
+        $(hiddenId).value = opt.dataset.value;
+      }
     });
   });
 }
@@ -1900,6 +2013,201 @@ function wireTemplates() {
     delete templates[name];
     saveTemplatesObj(templates);
     refreshTemplatePicker();
+  });
+}
+
+// ---------- Resume in-progress sessions (pause/resume) ----------
+async function checkForResumableSession() {
+  try {
+    const r = await fetch(API.sessions("in_progress"));
+    if (!r.ok) return;
+    const data = await r.json();
+    const sessions = data.sessions || [];
+    if (!sessions.length) return;
+    const s = sessions[0]; // most recent
+    const strip = $("resume-strip");
+    if (!strip) return;
+    $("resume-strip-title").textContent = `Resume: ${s.topic || "Untitled interview"}`;
+    const when = new Date(s.updated_at * 1000).toLocaleString();
+    $("resume-strip-sub").textContent = `Started ${when} · ${s.mode === "study" ? "Study" : "Job"} mode`;
+    strip.classList.remove("hidden");
+    $("resume-strip-btn").onclick = () => resumeSession(s.id);
+    $("resume-strip-dismiss").onclick = () => strip.classList.add("hidden");
+  } catch (_) {}
+}
+
+async function resumeSession(sessionId) {
+  try {
+    const r = await fetch(API.resume(sessionId));
+    if (!r.ok) throw new Error("Could not load session");
+    const s = await r.json();
+
+    state.sessionId = s.id;
+    state.topic = s.topic;
+    state.difficulty = s.difficulty;
+    state.interviewStyle = s.interview_style;
+    state.persona = s.persona;
+    state.lastSpeaker = s.last_speaker;
+
+    $("topic-pill").textContent = `${s.topic} · ${s.difficulty}`;
+    $("question-pill").textContent = `Resumed at Q${s.primary_questions_asked}`;
+    setAvatarPersona(s.persona);
+    if (s.persona === "panel" && s.last_speaker) setSpeaker(s.last_speaker);
+    else setSpeaker(null);
+
+    // Repaint transcript with audio playback buttons
+    $("transcript").innerHTML = "";
+    clearNotes();
+    clearCodeArtifact();
+    let candidateIdx = 0;
+    s.turns.forEach((t, i) => {
+      const turnIndex = i; // matches the index used when audio was saved
+      appendTurn(t.role, t.content, { turnIndex: t.role === "candidate" ? turnIndex : null });
+    });
+    // Re-show notes
+    for (const n of (s.notes || [])) appendNote(n);
+
+    // If session is already finished and has a report, just show the report.
+    if (s.finished && s.report) {
+      state.currentReport = s.report;
+      renderReport(s.report);
+      showScreen("report");
+      return;
+    }
+
+    showScreen("interview");
+    startClock(s.target_minutes || 15);
+    setState("idle", "Resumed — your turn");
+    $("answer-hint").textContent = "Resumed mid-interview. Hold the mic to continue.";
+  } catch (e) {
+    alert("Could not resume: " + e.message);
+  }
+}
+
+// ---------- Spaced repetition (weak spots) ----------
+async function checkForWeakSpots() {
+  try {
+    const r = await fetch(API.weakSpots);
+    if (!r.ok) return;
+    const data = await r.json();
+    const gaps = data.gaps || [];
+    if (gaps.length < 3) return; // need enough data to be useful
+    const strip = $("weak-spots-strip");
+    if (!strip) return;
+    const top = gaps.slice(0, 3).map(g => g.gap.split(/[.,;]/)[0].slice(0, 60));
+    $("weak-spots-sub").textContent = top.join(" · ");
+    strip.classList.remove("hidden");
+    $("weak-spots-btn").onclick = () => fillWeakSpotsForm(gaps);
+  } catch (_) {}
+}
+
+function fillWeakSpotsForm(gaps) {
+  // Pull together a focused-areas prompt and a topic line.
+  const topPhrases = gaps.slice(0, 6).map(g => g.gap.split(/[.,;]/)[0].trim()).join("; ");
+  $("topic").value = "Weak-spots review — focused mini-session";
+  $("focus-areas").value = topPhrases;
+  $("target-questions").value = "5";
+  $("target-minutes").value = "10";
+  // Open context panel so user can see what was filled
+  const panel = $("context-panel");
+  if (panel) panel.open = true;
+  // Scroll to the start button
+  $("start-btn").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+// ---------- Custom personas ----------
+function applyCustomPersonaUI(selectedValue) {
+  const row = $("custom-persona-row");
+  if (!row) return;
+  if (selectedValue === "__custom__") {
+    row.classList.remove("hidden");
+    $("persona").value = "custom";
+  } else {
+    row.classList.add("hidden");
+    $("persona").value = selectedValue;
+  }
+}
+
+// ---------- Progress dashboard ----------
+function renderProgress(historyItems) {
+  const card = $("progress-card");
+  if (!card) return;
+  if (!historyItems.length) {
+    card.classList.add("hidden");
+    return;
+  }
+  card.classList.remove("hidden");
+
+  const scores = historyItems.map(h => h.overall_score).filter(s => typeof s === "number");
+  const sessions = historyItems.length;
+  const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+  const best = scores.length ? Math.max(...scores) : 0;
+  // Trend: last 5 mean minus previous 5 mean
+  const last5 = scores.slice(0, 5);
+  const prev5 = scores.slice(5, 10);
+  const mean = (xs) => xs.length ? xs.reduce((a,b)=>a+b,0)/xs.length : 0;
+  const delta = last5.length && prev5.length ? mean(last5) - mean(prev5) : 0;
+  const trendStr = !prev5.length ? "—"
+    : delta > 0.3 ? `↑ +${delta.toFixed(1)}`
+    : delta < -0.3 ? `↓ ${delta.toFixed(1)}`
+    : "→ flat";
+
+  $("progress-sessions").textContent = sessions;
+  $("progress-avg").textContent = avg.toFixed(1);
+  $("progress-best").textContent = best;
+  $("progress-trend").textContent = trendStr;
+  $("progress-sub").textContent = `${sessions} session${sessions === 1 ? "" : "s"} tracked`;
+
+  // Sparkline (last up-to-20, oldest first)
+  const series = scores.slice(0, 20).reverse();
+  const spark = $("progress-spark");
+  if (spark && series.length >= 2) {
+    const W = 400, H = 60, P = 6;
+    const dx = (W - 2 * P) / (series.length - 1);
+    const max = 10, min = 0;
+    const yFor = (v) => H - P - ((v - min) / (max - min)) * (H - 2 * P);
+    const pts = series.map((v, i) => `${P + i * dx},${yFor(v)}`);
+    const path = "M " + pts.join(" L ");
+    const last = pts[pts.length - 1].split(",");
+    spark.innerHTML = `<path d="${path}"/><circle cx="${last[0]}" cy="${last[1]}" r="3"/>`;
+  } else if (spark) {
+    spark.innerHTML = "";
+  }
+
+  // Aggregate gaps as chips (use loadHistory full reports)
+  const gapCounts = {};
+  for (const h of historyItems) {
+    const gaps = h.report && h.report.gaps;
+    if (!Array.isArray(gaps)) continue;
+    for (const g of gaps) {
+      const key = g.toLowerCase().split(/[.,;]/)[0].trim().slice(0, 60);
+      gapCounts[key] = (gapCounts[key] || 0) + 1;
+    }
+  }
+  const sortedGaps = Object.entries(gapCounts)
+    .filter(([_, c]) => c >= 1)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+  const gapsEl = $("progress-gaps");
+  if (gapsEl) {
+    gapsEl.innerHTML = sortedGaps.length
+      ? sortedGaps.map(([g, c]) =>
+          `<span class="progress-gap-chip">${escapeHTML(g)}<span class="count">×${c}</span></span>`).join("")
+      : '';
+  }
+}
+
+// ---------- Code-pad toggle (attach code to your answer) ----------
+function wireCodePad() {
+  const btn = $("toggle-code-pad-btn");
+  const pad = $("code-pad");
+  const label = $("toggle-code-pad-label");
+  if (!btn || !pad) return;
+  btn.addEventListener("click", () => {
+    const showing = !pad.classList.toggle("hidden");
+    btn.classList.toggle("active", showing);
+    if (label) label.textContent = showing ? "Hide code" : "Add code";
+    if (showing) pad.focus();
   });
 }
 
@@ -2244,9 +2552,15 @@ function init() {
   wireTemplates();
   wireSettingsPanel();
   wireMicButton();
+  wireCodePad();
   // Start avatar idle behaviours (blinks, sway) so the face feels alive
   // whether or not an interview is running.
   startAvatarIdle();
+
+  // Check for a paused session to offer Resume + recent gaps to offer
+  // weak-spots practice. Fire-and-forget; either may no-op silently.
+  checkForResumableSession();
+  checkForWeakSpots();
 
   $("setup-form").addEventListener("submit", startInterview);
 

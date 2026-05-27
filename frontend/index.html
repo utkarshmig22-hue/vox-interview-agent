@@ -80,6 +80,30 @@
           </div>
           <input type="hidden" id="mode" value="job" />
 
+          <!-- ============ Resume in-progress sessions + Weak spots prompt ============ -->
+          <div id="resume-strip" class="resume-strip hidden">
+            <div class="resume-strip-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </div>
+            <div class="resume-strip-body">
+              <div class="resume-strip-title" id="resume-strip-title"></div>
+              <div class="resume-strip-sub" id="resume-strip-sub"></div>
+            </div>
+            <button type="button" id="resume-strip-btn" class="btn-primary btn-sm">Resume</button>
+            <button type="button" id="resume-strip-dismiss" class="btn-ghost btn-sm" title="Dismiss">×</button>
+          </div>
+
+          <div id="weak-spots-strip" class="weak-spots-strip hidden">
+            <div class="weak-spots-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            </div>
+            <div class="weak-spots-body">
+              <div class="weak-spots-title">Practice your weak spots</div>
+              <div class="weak-spots-sub" id="weak-spots-sub"></div>
+            </div>
+            <button type="button" id="weak-spots-btn" class="btn-primary btn-sm">Quiz me</button>
+          </div>
+
           <!-- ============ Study material panel (visible in study mode only) ============ -->
           <div id="study-panel" class="study-panel hidden">
             <div class="study-panel-header">
@@ -239,8 +263,14 @@
                   <button type="button" class="seg-opt active" data-value="hiring-manager" role="radio" aria-checked="true">Hiring Manager</button>
                   <button type="button" class="seg-opt" data-value="skeptical-senior" role="radio">Skeptical Senior</button>
                   <button type="button" class="seg-opt" data-value="panel" role="radio">Panel (2 voices)</button>
+                  <button type="button" class="seg-opt" data-value="__custom__" role="radio" title="Define your own">+ Custom…</button>
                 </div>
                 <input type="hidden" id="persona" value="hiring-manager" />
+                <div id="custom-persona-row" class="custom-persona-row hidden">
+                  <input type="text" id="custom-persona-name" placeholder="Name (e.g. 'FAANG bar-raiser')" maxlength="40" />
+                  <textarea id="custom-persona-prompt" rows="3" maxlength="600"
+                    placeholder="One paragraph describing how this interviewer behaves. e.g. 'You're a senior staff engineer at Stripe known for relentless follow-ups on system design choices. You ask about trade-offs, not just answers. Cold but fair.'"></textarea>
+                </div>
               </label>
 
               <div class="field-row">
@@ -467,9 +497,15 @@
         <div class="answer-header">
           <span class="answer-title">Your answer</span>
           <span class="answer-hint" id="answer-hint">Hold the mic and speak — your words appear here. Review and click Send.</span>
+          <button type="button" id="toggle-code-pad-btn" class="btn-ghost btn-sm" title="Attach a code snippet to your answer">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <span id="toggle-code-pad-label">Add code</span>
+          </button>
         </div>
         <textarea id="text-answer" rows="4"
                   placeholder="Hold the mic to speak, or type your answer here…"></textarea>
+        <textarea id="code-pad" class="code-pad hidden" rows="6" spellcheck="false"
+                  placeholder="// Paste or write code here — the interviewer will see it alongside your spoken answer.&#10;def example():&#10;    pass"></textarea>
         <div class="answer-actions">
           <button id="mic-btn" class="mic-btn" disabled>
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
@@ -497,6 +533,36 @@
         <h1 class="hero-title">Practice <em>history</em></h1>
         <p class="hero-sub">Every interview you've finished. Click any to review the report.</p>
       </div>
+      <div id="progress-card" class="glass card progress-card hidden">
+        <div class="progress-header">
+          <span class="progress-title">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Your trajectory
+          </span>
+          <span class="progress-sub" id="progress-sub"></span>
+        </div>
+        <div class="progress-grid">
+          <div class="progress-tile">
+            <div class="progress-tile-label">Sessions</div>
+            <div class="progress-tile-value" id="progress-sessions">—</div>
+          </div>
+          <div class="progress-tile">
+            <div class="progress-tile-label">Average score</div>
+            <div class="progress-tile-value" id="progress-avg">—</div>
+          </div>
+          <div class="progress-tile">
+            <div class="progress-tile-label">Best score</div>
+            <div class="progress-tile-value" id="progress-best">—</div>
+          </div>
+          <div class="progress-tile">
+            <div class="progress-tile-label">Last 5 trend</div>
+            <div class="progress-tile-value" id="progress-trend">—</div>
+          </div>
+        </div>
+        <svg id="progress-spark" class="progress-spark" viewBox="0 0 400 60" preserveAspectRatio="none"></svg>
+        <div class="progress-gaps" id="progress-gaps"></div>
+      </div>
+
       <div class="glass card history-card">
         <div id="history-list" class="history-list">
           <div class="history-empty">No completed interviews yet — finish one and it'll show up here.</div>

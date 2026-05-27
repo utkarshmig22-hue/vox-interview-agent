@@ -16,6 +16,7 @@ Persona = Literal[
     "skeptical-senior",
     "hiring-manager",
     "panel",
+    "custom",
 ]
 InterviewMode = Literal["job", "study"]
 
@@ -57,6 +58,14 @@ class StartInterviewRequest(BaseModel):
         None, max_length=80000,
         description="Study-mode only: the source text (extracted from a PDF/DOCX/notes upload). "
                     "Questions will be grounded in this material.",
+    )
+
+    # ---- Custom persona + adaptive difficulty ----
+    custom_persona_name: Optional[str] = Field(None, max_length=80)
+    custom_persona_prompt: Optional[str] = Field(None, max_length=2000)
+    adaptive_difficulty: bool = Field(
+        True,
+        description="If true, the interviewer ramps difficulty up/down based on answer quality.",
     )
 
 
