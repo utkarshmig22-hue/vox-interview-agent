@@ -68,6 +68,26 @@ class StartInterviewRequest(BaseModel):
         description="If true, the interviewer ramps difficulty up/down based on answer quality.",
     )
 
+    # ---- Custom evaluation criteria (overrides the default 5) ----
+    custom_criteria: Optional[list[str]] = Field(
+        None,
+        description="Optional list of evaluation criterion names to use INSTEAD of the defaults. "
+                    "e.g. ['Storytelling craft', 'Technical specificity', 'Reflective depth'].",
+    )
+
+
+class RespondRequestExt(BaseModel):
+    """Extended respond request that lets the frontend report how long the
+    candidate took to answer (for speed-of-thought scoring)."""
+    answer: str = Field(..., min_length=1, max_length=8000)
+    response_time_ms: Optional[int] = Field(None, ge=0, le=10 * 60 * 1000)
+
+
+class CommentRequest(BaseModel):
+    body: str = Field(..., min_length=1, max_length=2000)
+    author: Optional[str] = Field(None, max_length=80)
+    turn_index: Optional[int] = None
+
 
 class StartInterviewResponse(BaseModel):
     session_id: str

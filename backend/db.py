@@ -50,7 +50,64 @@ def init() -> None:
                 created_at INTEGER NOT NULL,
                 PRIMARY KEY (session_id, turn_index)
             );
+
+            CREATE TABLE IF NOT EXISTS shares (
+                token TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_shares_session ON shares(session_id);
+
+            CREATE TABLE IF NOT EXISTS comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                share_token TEXT NOT NULL,
+                turn_index INTEGER,
+                author TEXT,
+                body TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_comments_token ON comments(share_token);
         """)
+
+
+# ---- Shares & comments (mentor mode) ------------------------------------
+def create_share(session_id: str) -> str:
+    import secrets
+    token = secrets.token_urlsafe(12)
+    with _lock, _conn() as c:
+        c.execute(
+            "INSERT INTO shares (token, session_id, created_at) VALUES (?,?,?)",
+            (token, session_id, int(time.time())),
+        )
+    return token
+
+
+def get_share(token: str) -> Optional[str]:
+    with _conn() as c:
+        row = c.execute("SELECT session_id FROM shares WHERE token=?", (token,)).fetchone()
+    return row["session_id"] if row else None
+
+
+def add_comment(share_token: str, body: str, *, author: Optional[str] = None,
+                turn_index: Optional[int] = None) -> dict:
+    with _lock, _conn() as c:
+        cur = c.execute(
+            """INSERT INTO comments (share_token, turn_index, author, body, created_at)
+               VALUES (?,?,?,?,?)""",
+            (share_token, turn_index, author, body, int(time.time())),
+        )
+        cid = cur.lastrowid
+    return {"id": cid}
+
+
+def list_comments(share_token: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT id, turn_index, author, body, created_at
+               FROM comments WHERE share_token=? ORDER BY created_at ASC""",
+            (share_token,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ---- Sessions ------------------------------------------------------------

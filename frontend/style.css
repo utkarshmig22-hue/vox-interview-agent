@@ -44,6 +44,38 @@
   --ease: cubic-bezier(.2, .8, .2, 1);
 }
 
+/* Light theme overrides — applied when <html data-theme="light"> */
+html[data-theme="light"] {
+  --bg-0: #f6f7fb;
+  --bg-1: #ffffff;
+  --surface: rgba(255,255,255,0.85);
+  --surface-2: rgba(0,0,0,0.03);
+  --border: rgba(15, 20, 40, 0.10);
+  --border-strong: rgba(15, 20, 40, 0.18);
+  --text: #181a2a;
+  --text-dim: #46506b;
+  --text-muted: #7a85a0;
+}
+html[data-theme="light"] body {
+  background:
+    radial-gradient(1200px 800px at 80% -10%, rgba(124, 131, 255, 0.10), transparent 60%),
+    radial-gradient(900px 700px at 10% 110%, rgba(34, 211, 238, 0.08), transparent 60%),
+    var(--bg-0);
+}
+html[data-theme="light"] .blob { opacity: 0.25; mix-blend-mode: multiply; }
+html[data-theme="light"] .grain { opacity: 0.15; }
+html[data-theme="light"] input,
+html[data-theme="light"] textarea,
+html[data-theme="light"] select {
+  background: rgba(255,255,255,0.9);
+  color: var(--text);
+}
+html[data-theme="light"] .code-card pre,
+html[data-theme="light"] .code-pad {
+  background: #1a1d27;
+  color: #e1e5ee;
+}
+
 * { box-sizing: border-box; }
 html, body {
   margin: 0;
@@ -642,6 +674,209 @@ main {
 .progress-gap-chip .count { opacity: 0.65; margin-left: 4px; }
 @media (max-width: 720px) {
   .progress-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* =========================================================
+   Question packs bar
+   ========================================================= */
+.packs-bar {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  background: rgba(34,211,238,.04);
+  border: 1px solid rgba(34,211,238,.2);
+  border-radius: var(--radius-sm);
+}
+.packs-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.packs-label svg { color: var(--cyan); }
+
+/* =========================================================
+   History search box
+   ========================================================= */
+.history-toolbar {
+  margin-bottom: 12px;
+}
+.history-search {
+  width: 100%;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+.history-search:focus {
+  outline: none;
+  border-color: rgba(167,139,250,.55);
+  box-shadow: 0 0 0 4px rgba(167,139,250,.08);
+}
+
+/* =========================================================
+   Camera self-view (mock-pressure picture-in-picture)
+   ========================================================= */
+.self-view {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  width: 180px;
+  height: 135px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 2px solid var(--border-strong);
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  z-index: 100;
+  transform: scaleX(-1);   /* mirror so it feels like a mirror, not a camera */
+  background: #000;
+}
+
+/* =========================================================
+   Comment thread (mentor mode on shared reports)
+   ========================================================= */
+.comments-section {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.comments-section h3 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0 0 14px;
+}
+.comment {
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.025);
+  border-left: 3px solid var(--cyan);
+  border-radius: 6px;
+  margin-bottom: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.comment-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 14px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.comment-form input,
+.comment-form textarea {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+}
+.comment-form button {
+  align-self: flex-end;
+}
+
+/* Hotkey hint overlay */
+.hotkey-hint {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(0,0,0,.5);
+  padding: 6px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .3s;
+}
+.hotkey-hint.show { opacity: 1; }
+.hotkey-hint kbd {
+  background: rgba(255,255,255,.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 10px;
+  margin: 0 2px;
+}
+
+/* Theme toggle button */
+#theme-toggle-btn {
+  padding: 6px !important;
+  width: 28px;
+  height: 28px;
+}
+
+/* Editable transcript turns */
+.turn[contenteditable="true"] {
+  outline: 1px dashed rgba(167,139,250,.4);
+  cursor: text;
+}
+
+/* Self-assessment modal */
+.assess-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn .15s var(--ease);
+}
+.assess-modal-card {
+  background: var(--bg-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 380px;
+  width: 90%;
+  text-align: center;
+}
+.assess-modal-card h3 { margin: 0 0 8px; font-size: 16px; }
+.assess-modal-card p { margin: 0 0 18px; color: var(--text-dim); font-size: 13px; }
+.assess-stars {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+.assess-star {
+  background: rgba(255,255,255,.05);
+  border: 1px solid var(--border);
+  width: 40px; height: 40px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all .15s;
+}
+.assess-star:hover, .assess-star.active {
+  background: var(--grad-primary);
+  color: white;
+  border-color: transparent;
 }
 
 .form-grid {

@@ -148,6 +148,8 @@ async def evaluate(
     focus_areas: Optional[str] = None,
     mode: str = "job",
     study_material: Optional[str] = None,
+    custom_criteria: Optional[list[str]] = None,
+    response_times_ms: Optional[list[int]] = None,
 ) -> EvaluationReport:
     transcript = _format_transcript(turns)
 
@@ -182,6 +184,23 @@ async def evaluate(
             if len(mat) > 30000:
                 mat = mat[:30000] + "\n[truncated]"
             extra += f"\n# Source material (the truth for this session)\n<material>\n{mat}\n</material>\n"
+
+    if custom_criteria:
+        cleaned = [c.strip() for c in custom_criteria if c and c.strip()][:8]
+        if cleaned:
+            extra += (
+                "\n# Custom criteria override\n"
+                "Use EXACTLY these criterion names in the `criteria` array (in this order), "
+                f"replacing the default ones: {cleaned}\n"
+            )
+    if response_times_ms:
+        avg = sum(response_times_ms) / max(1, len(response_times_ms))
+        extra += (
+            f"\n# Response timing observed\n"
+            f"Average time-to-answer: {avg/1000:.1f}s across {len(response_times_ms)} turns. "
+            "Factor this into Confidence & Composure (or analogous criterion) — long pauses on "
+            "easy questions suggest uncertainty; quick answers on hard ones suggest fluency.\n"
+        )
 
     user_prompt = (
         "\n".join(context_lines)

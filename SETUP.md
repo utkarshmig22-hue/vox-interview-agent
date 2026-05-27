@@ -204,7 +204,42 @@ Interview_voice_agent/
 
 ---
 
-## 10. Stopping the server
+## 10. Hosted deployment (optional)
+
+Vox is designed to run locally, but you can host it for personal use. Two free-tier paths:
+
+### Option A — Fly.io (free tier covers small apps)
+```bash
+brew install flyctl
+fly launch --dockerfile           # detects the included Dockerfile
+fly secrets set ANTHROPIC_API_KEY=sk-ant-...   # if NOT using Claude Code OAuth on the server
+fly deploy
+```
+
+> **Important**: Claude Code OAuth requires the `claude` CLI to be installed and logged in. That's hard inside a container, so for hosted deploys you'll usually need an API key (which bills the API account, not your Max plan). Use the local path for Max-plan use.
+
+### Option B — Render.com (free tier)
+1. Push the repo to GitHub
+2. New → Web Service → connect repo
+3. Build command: `pip install -r requirements.txt`
+4. Start command: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
+5. Add env var `ANTHROPIC_API_KEY` (or, with custom Docker, mount `~/.claude`)
+
+### Option C — Docker locally
+```bash
+docker build -t vox .
+docker run -p 8000:8000 -v ~/.claude:/root/.claude vox
+```
+
+The `-v` mount lets the Agent SDK find your Claude Code OAuth so you stay on the Max plan inside the container.
+
+### Notes for hosted deploys
+- macOS `say` won't work in Linux containers; TTS falls back to browser
+- Whisper still works (CPU). For better performance use a GPU box
+- For multi-user, add a reverse proxy with rate limiting (slowapi already in)
+- The `/share/{token}` URLs are public — anyone with the link can view + comment
+
+## 11. Stopping the server
 
 `Ctrl+C` in the terminal where `./run.sh` is running.
 

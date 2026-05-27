@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -21,15 +21,29 @@ if not _key or _key.startswith("sk-ant-xxxxxxxx"):
 
 from . import db, evaluator, interviewer, report_export, resume, stt, tts  # noqa: E402
 from .models import (  # noqa: E402
+    CommentRequest,
     FinishResponse,
     RespondRequest,
+    RespondRequestExt,
     RespondResponse,
     StartInterviewRequest,
     StartInterviewResponse,
 )
 from .session import store  # noqa: E402
 
-app = FastAPI(title="Vox · AI Voice Interviewer", version="1.1.0")
+app = FastAPI(title="Vox · AI Voice Interviewer", version="1.2.0")
+
+# Rate limiting — guards expensive endpoints (LLM calls, file uploads) from
+# accidental abuse. Per-IP. Off if SLOWAPI is not installed.
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+    limiter = Limiter(key_func=get_remote_address, default_limits=["240/minute"])
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+except ImportError:
+    limiter = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -167,7 +181,7 @@ async def parse_resume(file: UploadFile = File(...)) -> dict:
 
 # --- STT endpoint -----------------------------------------------------------
 @app.post("/api/transcribe")
-async def transcribe(file: UploadFile = File(...)) -> dict:
+async def transcribe(file: UploadFile = File(...), language: str = "en") -> dict:
     """Transcribe an uploaded audio blob (webm/ogg/wav/m4a) via Whisper."""
     if not stt.is_available():
         raise HTTPException(status_code=501, detail="Whisper STT not installed on server")
@@ -179,7 +193,7 @@ async def transcribe(file: UploadFile = File(...)) -> dict:
         # Without to_thread, a 5-second transcribe call blocks every other
         # request for 1-2 seconds — that's the "mid-session hang" the user saw.
         text = await asyncio.to_thread(
-            stt.transcribe, content, file.content_type or "audio/webm"
+            stt.transcribe, content, file.content_type or "audio/webm", language
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
@@ -188,11 +202,12 @@ async def transcribe(file: UploadFile = File(...)) -> dict:
 
 # --- TTS endpoints -----------------------------------------------------------
 @app.get("/api/voices")
-def get_voices() -> dict:
-    """List installed English voices on the host (macOS `say`)."""
+def get_voices(lang: str = "en_") -> dict:
+    """List installed voices on the host (macOS `say`). `lang` filters by
+    language prefix (e.g. 'en_', 'es_', 'fr_'). Use '' for all."""
     available = tts.is_available()
     return {
-        "voices": tts.list_voices() if available else [],
+        "voices": tts.list_voices(language_prefix=lang) if available else [],
         "available": available,
     }
 
@@ -240,6 +255,7 @@ async def start_interview(req: StartInterviewRequest) -> StartInterviewResponse:
         custom_persona_name=req.custom_persona_name,
         custom_persona_prompt=req.custom_persona_prompt,
         adaptive_difficulty=req.adaptive_difficulty,
+        custom_criteria=req.custom_criteria,
     )
     try:
         parsed = await interviewer.open_interview(session)
@@ -254,12 +270,15 @@ async def start_interview(req: StartInterviewRequest) -> StartInterviewResponse:
 
 
 @app.post("/api/interview/{session_id}/respond", response_model=RespondResponse)
-async def respond(session_id: str, req: RespondRequest) -> RespondResponse:
+async def respond(session_id: str, req: RespondRequestExt) -> RespondResponse:
     session = store.get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     if session.finished:
         raise HTTPException(status_code=400, detail="Interview already finished")
+    # Speed-of-thought: record how long the candidate took (frontend reports it).
+    if req.response_time_ms is not None:
+        session.turn_response_ms.append(req.response_time_ms)
     try:
         parsed = await interviewer.next_turn(session, req.answer)
     except Exception as e:
@@ -333,6 +352,129 @@ def get_turn_audio(session_id: str, turn_index: int) -> Response:
     return Response(content=audio, media_type=mime)
 
 
+# --- Shareable read-only reports + mentor comments -----------------------
+@app.post("/api/interview/{session_id}/share")
+def create_share(session_id: str) -> dict:
+    """Mint a public read-only token for an interview report."""
+    if not store.get(session_id):
+        raise HTTPException(404, "Session not found")
+    token = db.create_share(session_id)
+    return {"token": token, "url": f"/share/{token}"}
+
+
+@app.get("/api/share/{token}")
+def get_share(token: str) -> dict:
+    """Return the report + transcript + comments for a shared session."""
+    session_id = db.get_share(token)
+    if not session_id:
+        raise HTTPException(404, "Share not found")
+    session = store.get(session_id)
+    if not session:
+        raise HTTPException(404, "Session not found")
+    return {
+        "report": session._report,
+        "topic": session.topic,
+        "transcript": [{"role": t.role, "content": t.content} for t in session.turns],
+        "comments": db.list_comments(token),
+    }
+
+
+@app.post("/api/share/{token}/comments")
+def post_comment(token: str, req: CommentRequest) -> dict:
+    if not db.get_share(token):
+        raise HTTPException(404, "Share not found")
+    return db.add_comment(token, req.body, author=req.author, turn_index=req.turn_index)
+
+
+@app.get("/api/share/{token}/comments")
+def get_comments(token: str) -> dict:
+    if not db.get_share(token):
+        raise HTTPException(404, "Share not found")
+    return {"comments": db.list_comments(token)}
+
+
+# --- Question packs (preset interview templates) -------------------------
+_QUESTION_PACKS = [
+    {
+        "id": "faang-pm",
+        "name": "FAANG PM — Senior",
+        "topic": "Senior Product Management — consumer tech",
+        "difficulty": "advanced",
+        "target_questions": 7,
+        "target_minutes": 25,
+        "interview_style": "case-study",
+        "persona": "hiring-manager",
+        "focus_areas": "product sense, metric design, user research, prioritisation under ambiguity, "
+                       "cross-functional leadership, technical fluency",
+    },
+    {
+        "id": "ml-systems",
+        "name": "ML Systems — Senior IC",
+        "topic": "ML systems and infrastructure",
+        "difficulty": "advanced",
+        "target_questions": 6,
+        "target_minutes": 30,
+        "interview_style": "technical-deep-dive",
+        "persona": "skeptical-senior",
+        "focus_areas": "model training pipelines, feature stores, inference latency, model drift, "
+                       "AB testing, MLOps and reproducibility",
+    },
+    {
+        "id": "behavioural-director",
+        "name": "Behavioural — Director level",
+        "topic": "Engineering leadership — director track",
+        "difficulty": "advanced",
+        "target_questions": 6,
+        "target_minutes": 30,
+        "interview_style": "structured-behavioral",
+        "persona": "panel",
+        "focus_areas": "scaling teams, managing managers, navigating reorgs, performance management, "
+                       "stakeholder alignment, strategic narrative",
+    },
+    {
+        "id": "system-design",
+        "name": "System design — Senior backend",
+        "topic": "Distributed system design",
+        "difficulty": "advanced",
+        "target_questions": 5,
+        "target_minutes": 35,
+        "interview_style": "case-study",
+        "persona": "skeptical-senior",
+        "focus_areas": "scalability, consistency vs availability, caching, queueing, observability, "
+                       "failure modes, capacity estimation",
+    },
+    {
+        "id": "frontend-engineer",
+        "name": "Frontend engineer — mid/senior",
+        "topic": "Frontend engineering — React / TypeScript",
+        "difficulty": "intermediate",
+        "target_questions": 6,
+        "target_minutes": 25,
+        "interview_style": "mixed",
+        "persona": "hiring-manager",
+        "focus_areas": "component architecture, state management, performance, accessibility, "
+                       "testing, type safety",
+    },
+    {
+        "id": "data-scientist",
+        "name": "Data scientist — applied",
+        "topic": "Applied data science and statistics",
+        "difficulty": "intermediate",
+        "target_questions": 6,
+        "target_minutes": 25,
+        "interview_style": "mixed",
+        "persona": "friendly-mentor",
+        "focus_areas": "experimental design, statistical inference, regression diagnostics, "
+                       "feature engineering, communicating results to non-technical stakeholders",
+    },
+]
+
+
+@app.get("/api/question-packs")
+def question_packs() -> dict:
+    return {"packs": _QUESTION_PACKS}
+
+
 @app.get("/api/weak-spots")
 def weak_spots() -> dict:
     """Aggregated gaps from recent finished interviews — drives the
@@ -368,6 +510,8 @@ async def finish(session_id: str) -> FinishResponse:
             focus_areas=session.focus_areas,
             mode=session.mode,
             study_material=session.study_material,
+            custom_criteria=session.custom_criteria,
+            response_times_ms=list(session.turn_response_ms) or None,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Evaluation failed: {e}")
@@ -385,4 +529,10 @@ if FRONTEND_DIR.exists():
 
     @app.get("/")
     def index() -> FileResponse:
+        return FileResponse(str(FRONTEND_DIR / "index.html"))
+
+    @app.get("/share/{token}")
+    def share_index(token: str) -> FileResponse:
+        """Serve the same SPA — frontend detects /share/ in the URL and
+        opens the read-only mentor view."""
         return FileResponse(str(FRONTEND_DIR / "index.html"))

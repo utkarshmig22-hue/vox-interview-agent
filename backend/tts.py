@@ -95,6 +95,13 @@ PRONUNCIATIONS: list[tuple[str, str]] = [
     (r"\s+—\s+", ", "),
     (r"\s+–\s+", ", "),
 
+    # --- SSML-like pauses for natural prosody ---
+    # Ellipsis → noticeable pause (macOS `say` reads [[slnc N]] as a silence of N ms)
+    (r"\.\.\.+", " [[slnc 350]] "),
+    # Colons and semicolons → small breath
+    (r":\s+", ": [[slnc 180]] "),
+    (r";\s+", "; [[slnc 180]] "),
+
     # --- Normalise multiple spaces ---
     (r"  +", " "),
 ]

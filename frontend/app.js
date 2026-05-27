@@ -7,13 +7,18 @@ const API = {
   start: "/api/interview/start",
   respond: (id) => `/api/interview/${id}/respond`,
   finish: (id) => `/api/interview/${id}/finish`,
-  transcribe: "/api/transcribe",
+  transcribe: (lang) => `/api/transcribe?language=${encodeURIComponent(lang || "en")}`,
   health: "/api/health",
   sessions: (status) => `/api/sessions?status=${status}`,
   resume: (id) => `/api/interview/${id}/resume`,
   audioSave: (id, idx) => `/api/interview/${id}/audio/${idx}`,
   audioGet: (id, idx) => `/api/interview/${id}/audio/${idx}`,
   weakSpots: "/api/weak-spots",
+  packs: "/api/question-packs",
+  share: (id) => `/api/interview/${id}/share`,
+  shareGet: (tok) => `/api/share/${tok}`,
+  shareComments: (tok) => `/api/share/${tok}/comments`,
+  voices: (lang) => `/api/voices?lang=${encodeURIComponent(lang || "en_")}`,
 };
 
 const state = {
@@ -83,6 +88,9 @@ const settings = {
   autoSendOnSilence: false, // OFF by default — user always reviews/edits before sending
   silenceSeconds: 0.8,    // VAD silence threshold (was 2.5 with timer-based)
   acknowledgements: true, // play "Mhm.", "Got it." while Claude thinks
+  language: "en",         // Whisper STT language
+  theme: "dark",          // dark | light
+  camera: false,          // show self-view picture-in-picture
 };
 
 function loadSettings() {
@@ -1152,7 +1160,7 @@ async function handleWhisperStop() {
   try {
     const fd = new FormData();
     fd.append("file", blob, "recording.webm");
-    const r = await fetch(API.transcribe, { method: "POST", body: fd });
+    const r = await fetch(API.transcribe(settings.language), { method: "POST", body: fd });
     if (!r.ok) {
       const err = await r.text();
       throw new Error(`${r.status} ${err}`);
@@ -1401,6 +1409,8 @@ async function startInterview(e) {
       custom_persona_name: persona === "custom" ? ($("custom-persona-name").value.trim() || null) : null,
       custom_persona_prompt: persona === "custom" ? ($("custom-persona-prompt").value.trim() || null) : null,
       adaptive_difficulty: true,
+      custom_criteria: (($("custom-criteria") && $("custom-criteria").value.trim()) || "")
+        .split(",").map(s => s.trim()).filter(Boolean).slice(0, 8) || null,
     });
     state.sessionId = data.session_id;
     state.topic = topic;
@@ -1497,7 +1507,11 @@ async function sendAnswer(text) {
   // Fire ack and Claude call in parallel. Ack plays immediately so the user
   // hears something within ~50ms instead of staring at silence for 4-5s.
   const ackPromise = playAck();
-  const claudePromise = postJSON(API.respond(state.sessionId), { answer: fullAnswer });
+  const responseMs = answerResponseMs();
+  const claudePromise = postJSON(API.respond(state.sessionId), {
+    answer: fullAnswer,
+    response_time_ms: responseMs,
+  });
 
   try {
     // Wait for BOTH: the substantive reply waits for the ack to finish so we
@@ -1530,6 +1544,7 @@ async function sendAnswer(text) {
       state.interimText = "";
       refreshSendBtnState();
       afterInterviewerSpoke();
+      markAnswerStart();
       return;
     }
   } catch (err) {
@@ -2532,9 +2547,281 @@ function wireMicButton() {
   mic.addEventListener("touchend", release, { passive: false });
 }
 
+// ---------- Question packs (preset templates) ----------
+let _packsCache = [];
+async function loadQuestionPacks() {
+  try {
+    const r = await fetch(API.packs);
+    if (!r.ok) return;
+    _packsCache = (await r.json()).packs || [];
+    const sel = $("packs-picker");
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Or pick a preset —</option>';
+    for (const p of _packsCache) {
+      const opt = document.createElement("option");
+      opt.value = p.id; opt.textContent = p.name;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener("change", () => {
+      const pack = _packsCache.find(p => p.id === sel.value);
+      if (!pack) return;
+      $("topic").value = pack.topic || "";
+      $("target-questions").value = pack.target_questions || 6;
+      $("target-minutes").value = pack.target_minutes || 15;
+      $("focus-areas").value = pack.focus_areas || "";
+      const diffBtn = document.querySelector(`#difficulty-seg .seg-opt[data-value="${pack.difficulty}"]`);
+      if (diffBtn) diffBtn.click();
+      const styleBtn = document.querySelector(`#style-seg .seg-opt[data-value="${pack.interview_style}"]`);
+      if (styleBtn) styleBtn.click();
+      const personaBtn = document.querySelector(`#persona-seg .seg-opt[data-value="${pack.persona}"]`);
+      if (personaBtn) personaBtn.click();
+      const panel = $("context-panel");
+      if (panel) panel.open = true;
+      sel.value = "";
+    });
+  } catch (_) {}
+}
+
+// ---------- Email report (mailto:) ----------
+function emailReport() {
+  const r = state.currentReport;
+  if (!r) return;
+  const subject = `Vox interview report — ${r.topic} (${r.overall_score}/10 ${r.verdict})`;
+  const body = buildReportMarkdown(r);
+  // mailto bodies are capped (~2000 chars by most clients); truncate
+  const trimmed = body.length > 1800 ? body.slice(0, 1800) + "\n\n[…truncated; download the full .docx]" : body;
+  const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(trimmed)}`;
+  window.location.href = url;
+}
+
+// ---------- Shareable read-only reports ----------
+async function shareReport() {
+  if (!state.sessionId) {
+    alert("Open a finished report (from History) first.");
+    return;
+  }
+  try {
+    const r = await fetch(API.share(state.sessionId), { method: "POST" });
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    const url = `${window.location.origin}/share/${data.token}`;
+    await navigator.clipboard.writeText(url);
+    alert(`Share link copied to clipboard:\n\n${url}\n\nAnyone with this link can view the report and leave comments.`);
+  } catch (e) {
+    alert("Couldn't generate share link: " + e.message);
+  }
+}
+
+// Read-only share view — entered when URL is /share/{token}
+async function openShareView() {
+  const match = location.pathname.match(/^\/share\/([^\/]+)$/);
+  if (!match) return false;
+  const token = match[1];
+  try {
+    const r = await fetch(API.shareGet(token));
+    if (!r.ok) throw new Error("Share not found");
+    const data = await r.json();
+    if (!data.report) throw new Error("This session hasn't been evaluated yet");
+
+    // Hide setup-only controls
+    document.querySelectorAll(".app-nav button").forEach((b) => b.style.display = "none");
+    state.currentReport = data.report;
+    renderReport(data.report);
+
+    // Append a comment thread
+    const reportContent = $("report-content");
+    const section = document.createElement("div");
+    section.className = "comments-section";
+    section.innerHTML = `
+      <h3>Mentor comments</h3>
+      <div id="comments-list"></div>
+      <form id="comment-form" class="comment-form">
+        <input type="text" id="comment-author" placeholder="Your name (optional)" maxlength="80" />
+        <textarea id="comment-body" rows="3" placeholder="Add a comment…" required></textarea>
+        <button type="submit" class="btn-primary btn-sm">Post comment</button>
+      </form>
+    `;
+    reportContent.appendChild(section);
+    renderShareComments(data.comments || []);
+
+    section.querySelector("#comment-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = $("comment-body").value.trim();
+      if (!body) return;
+      const author = $("comment-author").value.trim() || null;
+      const r = await fetch(API.shareComments(token), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body, author }),
+      });
+      if (r.ok) {
+        $("comment-body").value = "";
+        const updated = await fetch(`${API.shareComments(token)}`).then(r => r.json());
+        renderShareComments(updated.comments || []);
+      }
+    });
+
+    // Hide the action buttons that don't make sense in share mode
+    ["new-interview-btn", "share-report-btn", "email-report-btn"].forEach(id => {
+      const el = $(id); if (el) el.style.display = "none";
+    });
+
+    showScreen("report");
+    return true;
+  } catch (e) {
+    document.body.innerHTML = `<div style="padding:48px;text-align:center;color:#aaa">Could not load shared report: ${e.message}</div>`;
+    return true;
+  }
+}
+
+function renderShareComments(comments) {
+  const list = $("comments-list");
+  if (!list) return;
+  list.innerHTML = comments.length
+    ? comments.map(c => {
+        const when = new Date(c.created_at * 1000).toLocaleString();
+        return `<div class="comment">
+          <div class="comment-meta">${escapeHTML(c.author || "Anonymous")} · ${when}</div>
+          <div>${escapeHTML(c.body)}</div>
+        </div>`;
+      }).join("")
+    : '<div style="color:var(--text-muted);font-size:13px;font-style:italic;">No comments yet — be the first.</div>';
+}
+
+// ---------- History search ----------
+let _historyAllItems = [];
+function wireHistorySearch() {
+  const input = $("history-search");
+  if (!input) return;
+  input.addEventListener("input", () => {
+    const q = input.value.trim().toLowerCase();
+    document.querySelectorAll(".history-item").forEach(row => {
+      const text = row.textContent.toLowerCase();
+      row.style.display = (!q || text.includes(q)) ? "" : "none";
+    });
+  });
+}
+
+// ---------- Light / dark theme ----------
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  settings.theme = theme;
+  saveSettings();
+}
+function toggleTheme() {
+  applyTheme(settings.theme === "light" ? "dark" : "light");
+}
+
+// ---------- Camera self-view ----------
+let _cameraStream = null;
+async function applyCameraSetting() {
+  const video = $("self-view");
+  if (!video) return;
+  if (settings.camera) {
+    try {
+      _cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      video.srcObject = _cameraStream;
+      video.classList.remove("hidden");
+    } catch (e) {
+      console.warn("Camera denied:", e);
+      settings.camera = false;
+      saveSettings();
+      const t = $("camera-toggle"); if (t) t.checked = false;
+    }
+  } else {
+    if (_cameraStream) {
+      _cameraStream.getTracks().forEach(t => t.stop());
+      _cameraStream = null;
+    }
+    video.srcObject = null;
+    video.classList.add("hidden");
+  }
+}
+
+// ---------- Keyboard shortcuts ----------
+function wireKeyboardShortcuts() {
+  document.addEventListener("keydown", (e) => {
+    // Ignore when typing in form fields
+    const tag = e.target.tagName;
+    const typingInForm = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target.isContentEditable;
+    if (typingInForm && e.key !== "Escape") return;
+
+    // ? — show hint
+    if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+      e.preventDefault();
+      showHotkeyHint();
+      return;
+    }
+    // Space — push-to-talk on interview screen
+    if (e.code === "Space" && screens.interview.classList.contains("active")) {
+      e.preventDefault();
+      if (state.recognising) stopListening();
+      else startListening({ silent: true });
+      return;
+    }
+    // Escape — cancel TTS / stop listening
+    if (e.key === "Escape") {
+      if (state.speaking) cancelSpeech();
+      if (state.recognising) stopListening();
+    }
+  });
+}
+
+let _hotkeyHintEl = null;
+function showHotkeyHint() {
+  if (!_hotkeyHintEl) {
+    _hotkeyHintEl = document.createElement("div");
+    _hotkeyHintEl.className = "hotkey-hint";
+    _hotkeyHintEl.innerHTML = '<kbd>Space</kbd> talk · <kbd>Esc</kbd> stop · <kbd>?</kbd> help';
+    document.body.appendChild(_hotkeyHintEl);
+  }
+  _hotkeyHintEl.classList.add("show");
+  clearTimeout(_hotkeyHintEl._t);
+  _hotkeyHintEl._t = setTimeout(() => _hotkeyHintEl.classList.remove("show"), 3000);
+}
+
+// ---------- Edit transcript turn in place ----------
+function makeTurnsEditable() {
+  document.querySelectorAll("#transcript .turn.candidate > div:nth-child(2)").forEach(div => {
+    div.setAttribute("contenteditable", "true");
+    div.parentElement.classList.add("editable");
+    div.addEventListener("blur", () => {
+      // Editable visual cue only; we don't re-submit. This is for cosmetic
+      // correction of mis-heard words so the user can clean up the transcript
+      // before sharing/downloading.
+    });
+  });
+}
+
+// ---------- Self-assessment after an answer ----------
+function maybeShowSelfAssessment(callback) {
+  // Disabled by default — only show when the user opted in. Settings already
+  // crowded; tuck it behind a flag the user can toggle later.
+  if (!settings.selfAssess) { callback && callback(null); return; }
+  // … (UI would go here)
+  callback && callback(null);
+}
+
+// ---------- Track answer time for speed-of-thought ----------
+function markAnswerStart() {
+  state._answerStartedAt = Date.now();
+}
+function answerResponseMs() {
+  if (!state._answerStartedAt) return null;
+  const ms = Date.now() - state._answerStartedAt;
+  state._answerStartedAt = null;
+  return ms;
+}
+
 // ---------- init ----------
-function init() {
+async function init() {
   loadSettings();
+  // Apply theme as early as possible to avoid flash
+  applyTheme(settings.theme || "dark");
+
+  // If the URL is /share/{token}, render the read-only mentor view and stop.
+  if (await openShareView()) return;
+
   detectCapabilities();
   if ("speechSynthesis" in window) {
     loadVoices();
@@ -2561,6 +2848,54 @@ function init() {
   // weak-spots practice. Fire-and-forget; either may no-op silently.
   checkForResumableSession();
   checkForWeakSpots();
+  loadQuestionPacks();
+  wireKeyboardShortcuts();
+  wireHistorySearch();
+
+  // Theme toggle
+  $("theme-toggle-btn")?.addEventListener("click", toggleTheme);
+
+  // Language picker
+  const langPicker = $("lang-picker");
+  if (langPicker) {
+    langPicker.value = settings.language || "en";
+    langPicker.addEventListener("change", (e) => {
+      settings.language = e.target.value;
+      saveSettings();
+      // Reload backend voices for new language prefix
+      const langPrefix = `${settings.language}_`;
+      fetch(API.voices(langPrefix)).then(r => r.ok ? r.json() : null).then(data => {
+        if (data?.voices?.length) {
+          state.backendVoices = data.voices;
+          settings.voiceName = data.voices[0].name;
+          populateVoicePicker();
+          updateVoiceTip();
+          saveSettings();
+        }
+      }).catch(() => {});
+    });
+  }
+
+  // Camera toggle
+  const camToggle = $("camera-toggle");
+  if (camToggle) {
+    camToggle.checked = !!settings.camera;
+    camToggle.addEventListener("change", (e) => {
+      settings.camera = e.target.checked;
+      saveSettings();
+      applyCameraSetting();
+    });
+    if (settings.camera) applyCameraSetting();
+  }
+
+  // Report-screen extras
+  $("email-report-btn")?.addEventListener("click", emailReport);
+  $("share-report-btn")?.addEventListener("click", shareReport);
+
+  // Register service worker (PWA install support)
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    navigator.serviceWorker.register("/static/sw.js").catch(() => {});
+  }
 
   $("setup-form").addEventListener("submit", startInterview);
 

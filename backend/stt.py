@@ -63,7 +63,7 @@ def info() -> dict:
     }
 
 
-def transcribe(audio_bytes: bytes, mime: str = "audio/webm") -> str:
+def transcribe(audio_bytes: bytes, mime: str = "audio/webm", language: str = "en") -> str:
     """Transcribe an audio blob and return the cleaned text.
 
     Uses internal VAD filter to skip silence, beam search for accuracy,
@@ -88,7 +88,7 @@ def transcribe(audio_bytes: bytes, mime: str = "audio/webm") -> str:
         model = _get_model()
         segments, _info = model.transcribe(
             path,
-            language="en",
+            language=language or "en",
             beam_size=5,
             vad_filter=True,
             condition_on_previous_text=False,
