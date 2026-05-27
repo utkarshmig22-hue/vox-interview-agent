@@ -10,6 +10,9 @@
   <link rel="manifest" href="/static/manifest.webmanifest" />
   <meta name="theme-color" content="#0c0d18" />
   <link rel="stylesheet" href="/static/style.css" />
+  <!-- CodeMirror 5 (lazy — only the CSS preloads; modes load on first Add-code click) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css" />
 </head>
 <body>
   <!-- Animated gradient mesh backdrop -->
@@ -558,8 +561,31 @@
         </div>
         <textarea id="text-answer" rows="4"
                   placeholder="Hold the mic to speak, or type your answer here…"></textarea>
-        <textarea id="code-pad" class="code-pad hidden" rows="6" spellcheck="false"
-                  placeholder="// Paste or write code here — the interviewer will see it alongside your spoken answer.&#10;def example():&#10;    pass"></textarea>
+        <div id="code-pad-wrap" class="code-pad-wrap hidden">
+          <div class="code-pad-toolbar">
+            <label class="code-lang-label">Language</label>
+            <select id="code-lang" class="code-lang-select">
+              <option value="python">Python</option>
+              <option value="javascript">JavaScript</option>
+              <option value="text/typescript">TypeScript</option>
+              <option value="text/x-go">Go</option>
+              <option value="text/x-java">Java</option>
+              <option value="text/x-csrc">C / C++</option>
+              <option value="text/x-rustsrc">Rust</option>
+              <option value="text/x-sql">SQL</option>
+              <option value="application/json">JSON</option>
+              <option value="text/x-yaml">YAML</option>
+              <option value="text/html">HTML</option>
+              <option value="text/css">CSS</option>
+              <option value="null">Plain text</option>
+            </select>
+            <span class="code-pad-tip">Tab indents · use ⌘+/ for comment toggle</span>
+          </div>
+          <!-- Real CodeMirror editor mounts here. Fallback textarea below works if CDN fails. -->
+          <div id="code-editor"></div>
+          <textarea id="code-pad" class="code-pad hidden" rows="6" spellcheck="false"
+                    placeholder="// Paste or write code here. Fallback editor — JS-disabled or CDN-blocked.&#10;def example():&#10;    pass"></textarea>
+        </div>
         <div class="answer-actions">
           <button id="mic-btn" class="mic-btn" disabled>
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>

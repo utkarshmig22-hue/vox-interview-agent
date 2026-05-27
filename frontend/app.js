@@ -1480,10 +1480,14 @@ async function sendAnswer(text) {
   if (!state.sessionId || state.awaitingReply) return;
   if (state.recognising) stopListening();
 
-  // If the code pad has content, attach it as a fenced block on the answer.
-  const codePad = $("code-pad");
-  const code = codePad && !codePad.classList.contains("hidden") ? codePad.value.trim() : "";
-  const fullAnswer = code ? `${text}\n\n\`\`\`\n${code}\n\`\`\`` : text;
+  // If the code pad is open and has content, attach it as a fenced block.
+  const codeWrap = $("code-pad-wrap");
+  const codeOpen = codeWrap && !codeWrap.classList.contains("hidden");
+  const code = codeOpen ? getCodeValue().trim() : "";
+  // Use the selected language as the fence info string so Claude knows what it is.
+  const lang = codeOpen ? (($("code-lang").value || "python").split("/").pop() || "") : "";
+  const fence = lang && lang !== "null" ? lang : "";
+  const fullAnswer = code ? `${text}\n\n\`\`\`${fence}\n${code}\n\`\`\`` : text;
 
   // Determine the index this candidate turn will occupy in the transcript.
   const turnIndex = $("transcript").querySelectorAll(".turn").length;
@@ -1556,8 +1560,8 @@ async function sendAnswer(text) {
     $("mic-btn").disabled = false;
     $("text-answer").disabled = false;
     // Clear the code pad too if the user used it.
-    const cp = $("code-pad");
-    if (cp && !cp.classList.contains("hidden")) cp.value = "";
+    const codeWrapAfter = $("code-pad-wrap");
+    if (codeWrapAfter && !codeWrapAfter.classList.contains("hidden")) clearCodeEditor();
     refreshSendBtnState();
   }
 }
@@ -2213,17 +2217,111 @@ function renderProgress(historyItems) {
   }
 }
 
-// ---------- Code-pad toggle (attach code to your answer) ----------
+// ---------- Code editor (CodeMirror, lazy-loaded on first use) ----------
+let _cmEditor = null;            // active CodeMirror instance, once initialised
+let _cmLoading = null;           // promise while CDN scripts are loading
+const _CM_BASE = "https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16";
+
+function _loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("Failed to load " + src));
+    document.head.appendChild(s);
+  });
+}
+
+async function loadCodeMirror() {
+  if (window.CodeMirror) return window.CodeMirror;
+  if (_cmLoading) return _cmLoading;
+  _cmLoading = (async () => {
+    await _loadScript(_CM_BASE + "/codemirror.min.js");
+    // Load common modes in parallel — each is tiny (~5–10 KB)
+    await Promise.all([
+      _loadScript(_CM_BASE + "/mode/python/python.min.js"),
+      _loadScript(_CM_BASE + "/mode/javascript/javascript.min.js"),
+      _loadScript(_CM_BASE + "/mode/clike/clike.min.js"),  // Java, C, C++
+      _loadScript(_CM_BASE + "/mode/go/go.min.js"),
+      _loadScript(_CM_BASE + "/mode/rust/rust.min.js"),
+      _loadScript(_CM_BASE + "/mode/sql/sql.min.js"),
+      _loadScript(_CM_BASE + "/mode/yaml/yaml.min.js"),
+      _loadScript(_CM_BASE + "/mode/xml/xml.min.js"),
+      _loadScript(_CM_BASE + "/mode/css/css.min.js"),
+      _loadScript(_CM_BASE + "/mode/htmlmixed/htmlmixed.min.js"),
+      _loadScript(_CM_BASE + "/addon/edit/matchbrackets.min.js"),
+      _loadScript(_CM_BASE + "/addon/edit/closebrackets.min.js"),
+      _loadScript(_CM_BASE + "/addon/comment/comment.min.js"),
+    ]);
+    return window.CodeMirror;
+  })();
+  return _cmLoading;
+}
+
+async function ensureCodeEditor() {
+  if (_cmEditor) return _cmEditor;
+  const container = $("code-editor");
+  if (!container) return null;
+  try {
+    const CM = await loadCodeMirror();
+    _cmEditor = CM(container, {
+      value: "",
+      mode: $("code-lang").value || "python",
+      theme: "dracula",
+      lineNumbers: true,
+      indentUnit: 4,
+      tabSize: 4,
+      indentWithTabs: false,
+      matchBrackets: true,
+      autoCloseBrackets: true,
+      lineWrapping: true,
+      extraKeys: { "Tab": (cm) => cm.replaceSelection("    ", "end") },
+    });
+    // Wire the language picker
+    $("code-lang").addEventListener("change", (e) => {
+      const m = e.target.value;
+      _cmEditor.setOption("mode", m === "null" ? null : m);
+    });
+    // Hide the textarea fallback (we have a real editor now)
+    $("code-pad").classList.add("hidden");
+    return _cmEditor;
+  } catch (e) {
+    console.warn("CodeMirror failed to load; falling back to textarea:", e);
+    $("code-pad").classList.remove("hidden");
+    return null;
+  }
+}
+
+function getCodeValue() {
+  if (_cmEditor) return _cmEditor.getValue();
+  const pad = $("code-pad");
+  return pad ? pad.value : "";
+}
+
+function clearCodeEditor() {
+  if (_cmEditor) _cmEditor.setValue("");
+  const pad = $("code-pad");
+  if (pad) pad.value = "";
+}
+
 function wireCodePad() {
   const btn = $("toggle-code-pad-btn");
-  const pad = $("code-pad");
+  const wrap = $("code-pad-wrap");
   const label = $("toggle-code-pad-label");
-  if (!btn || !pad) return;
-  btn.addEventListener("click", () => {
-    const showing = !pad.classList.toggle("hidden");
+  if (!btn || !wrap) return;
+  btn.addEventListener("click", async () => {
+    const showing = !wrap.classList.toggle("hidden");
     btn.classList.toggle("active", showing);
     if (label) label.textContent = showing ? "Hide code" : "Add code";
-    if (showing) pad.focus();
+    if (showing) {
+      const ed = await ensureCodeEditor();
+      if (ed) {
+        // Refresh after the wrap becomes visible — CM measures wrong if mounted hidden
+        setTimeout(() => { ed.refresh(); ed.focus(); }, 50);
+      } else {
+        $("code-pad").focus();
+      }
+    }
   });
 }
 
