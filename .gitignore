@@ -42,3 +42,8 @@ dist/
 vox-server.log
 *.pem
 *.key
+
+# --- Runtime data (SQLite + audio blobs) ---
+data/
+*.db
+*.db-journal
